@@ -15,6 +15,79 @@ import {
   PermissionMode,
 } from "./api";
 
+type Intel = {
+  known?: boolean;
+  applicable?: boolean;
+  vendor?: string;
+  category?: string;
+  gaming_impact?: string;
+  startup_impact?: string;
+  risk_level?: string;
+  rules_protect?: boolean;
+};
+
+function getIntel(it: ScoredItem): Intel {
+  const d = it.detail?.intelligence;
+  return d && typeof d === "object" ? (d as Intel) : {};
+}
+
+function knownLabel(it: ScoredItem): "n/a" | "known" | "unknown" {
+  const intel = getIntel(it);
+  if (intel.applicable === false) return "n/a";
+  if (intel.known === true) return "known";
+  return "unknown";
+}
+
+function matchesKnownFilter(it: ScoredItem, f: "all" | "known" | "unknown"): boolean {
+  if (f === "all") return true;
+  const k = knownLabel(it);
+  if (k === "n/a") return true;
+  return f === "known" ? k === "known" : k === "unknown";
+}
+
+function normalizedRisk(it: ScoredItem): string {
+  const intel = getIntel(it);
+  const ir = (intel.risk_level || "").toLowerCase();
+  if (ir) return ir;
+  if (it.rule_bucket === "risky_system_critical") return "critical";
+  if (it.rule_bucket === "unknown") return "unknown";
+  return "other";
+}
+
+function matchesRiskFilter(it: ScoredItem, f: string): boolean {
+  if (f === "all") return true;
+  return normalizedRisk(it) === f;
+}
+
+function matchesGamingFilter(it: ScoredItem, f: string): boolean {
+  if (f === "all") return true;
+  const intel = getIntel(it);
+  const g = (intel.gaming_impact || "").toLowerCase();
+  if (g) {
+    if (f === "very_high" && (g === "very_high" || g === "critical")) return true;
+    return g === f;
+  }
+  const r = it.rank_gaming_impact ?? 0;
+  if (f === "critical" || f === "very_high") return r >= 75;
+  if (f === "high") return r >= 55 && r < 75;
+  if (f === "medium") return r >= 35 && r < 55;
+  if (f === "variable") return r >= 25 && r < 70;
+  if (f === "low") return r < 35;
+  return true;
+}
+
+function matchesStartupFilter(it: ScoredItem, f: string): boolean {
+  if (f === "all") return true;
+  const intel = getIntel(it);
+  const s = (intel.startup_impact || "").toLowerCase();
+  if (s) return s === f || (f === "boot-critical" && s.includes("boot"));
+  const r = it.rank_startup_impact ?? 0;
+  if (f === "high") return r >= 55;
+  if (f === "medium") return r >= 30 && r < 55;
+  if (f === "low") return r < 30;
+  return true;
+}
+
 type SortKey =
   | "name"
   | "item_type"
@@ -22,6 +95,19 @@ type SortKey =
   | "rank_memory_impact"
   | "rank_gaming_impact"
   | "rank_deletion_risk";
+
+function knownPill(it: ScoredItem) {
+  const k = knownLabel(it);
+  if (k === "n/a") {
+    return (
+      <span className="pill intel-na" title="Intelligence DB does not classify this item type">
+        n/a
+      </span>
+    );
+  }
+  if (k === "known") return <span className="pill intel-known">Known</span>;
+  return <span className="pill intel-unknown">Unknown</span>;
+}
 
 function bucketPill(bucket: ScoredItem["rule_bucket"]) {
   const risky = bucket === "risky_system_critical";
@@ -48,6 +134,10 @@ export default function App() {
   const [perfPreset, setPerfPreset] = useState<string | null>(null);
   const [perfTargets, setPerfTargets] = useState("");
   const [perfConfirm, setPerfConfirm] = useState(false);
+  const [filterKnown, setFilterKnown] = useState<"all" | "known" | "unknown">("all");
+  const [filterGaming, setFilterGaming] = useState<string>("all");
+  const [filterStartup, setFilterStartup] = useState<string>("all");
+  const [filterRisk, setFilterRisk] = useState<string>("all");
 
   useEffect(() => {
     client
@@ -116,6 +206,16 @@ export default function App() {
       return ((va as number) - (vb as number)) * dir;
     });
   }, [scan, sortDir, sortKey]);
+
+  const displayedItems = useMemo(() => {
+    return sortedItems.filter((it) => {
+      if (!matchesKnownFilter(it, filterKnown)) return false;
+      if (!matchesGamingFilter(it, filterGaming)) return false;
+      if (!matchesStartupFilter(it, filterStartup)) return false;
+      if (!matchesRiskFilter(it, filterRisk)) return false;
+      return true;
+    });
+  }, [sortedItems, filterKnown, filterGaming, filterStartup, filterRisk]);
 
   const bucketChart = useMemo(() => {
     const b = scan?.summary.buckets ?? {};
@@ -311,15 +411,79 @@ export default function App() {
           <div className="panel-header">
             <h2>System inventory</h2>
             <span className="muted">
-              {scan ? `${scan.summary.items_count} items — ${scan.summary.platform}` : "No scan yet"}
+              {scan
+                ? `${displayedItems.length} shown / ${scan.summary.items_count} items — ${scan.summary.platform}`
+                : "No scan yet"}
             </span>
+          </div>
+          <div
+            className="inventory-filters"
+            style={{
+              padding: "8px 12px",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 12,
+              alignItems: "center",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <span className="muted" style={{ fontSize: 12 }}>
+              Filters
+            </span>
+            <label className="muted" style={{ fontSize: 12 }}>
+              Known
+              <select
+                value={filterKnown}
+                onChange={(e) => setFilterKnown(e.target.value as "all" | "known" | "unknown")}
+                style={{ marginLeft: 6 }}
+              >
+                <option value="all">All</option>
+                <option value="known">Known only</option>
+                <option value="unknown">Unknown only</option>
+              </select>
+            </label>
+            <label className="muted" style={{ fontSize: 12 }}>
+              Gaming (intel / rank)
+              <select value={filterGaming} onChange={(e) => setFilterGaming(e.target.value)} style={{ marginLeft: 6 }}>
+                <option value="all">All</option>
+                <option value="critical">critical</option>
+                <option value="high">high</option>
+                <option value="medium">medium</option>
+                <option value="low">low</option>
+                <option value="variable">variable</option>
+              </select>
+            </label>
+            <label className="muted" style={{ fontSize: 12 }}>
+              Startup (intel / rank)
+              <select value={filterStartup} onChange={(e) => setFilterStartup(e.target.value)} style={{ marginLeft: 6 }}>
+                <option value="all">All</option>
+                <option value="boot-critical">boot-critical</option>
+                <option value="high">high</option>
+                <option value="medium">medium</option>
+                <option value="low">low</option>
+              </select>
+            </label>
+            <label className="muted" style={{ fontSize: 12 }}>
+              Risk (intel / bucket)
+              <select value={filterRisk} onChange={(e) => setFilterRisk(e.target.value)} style={{ marginLeft: 6 }}>
+                <option value="all">All</option>
+                <option value="critical">critical</option>
+                <option value="high">high</option>
+                <option value="medium">medium</option>
+                <option value="low">low</option>
+                <option value="unknown">unknown</option>
+                <option value="other">other</option>
+              </select>
+            </label>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th></th>
+                  <th>Intel</th>
                   <th onClick={() => toggleSort("name")}>Name</th>
+                  <th>Vendor / category</th>
                   <th onClick={() => toggleSort("item_type")}>Type</th>
                   <th onClick={() => toggleSort("rule_bucket")}>Bucket</th>
                   <th onClick={() => toggleSort("rank_memory_impact")}>RAM Δ</th>
@@ -329,42 +493,73 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {sortedItems.map((it) => (
-                  <tr key={it.id} onDoubleClick={() => runExplain(it)}>
-                    <td>
-                      {it.item_type === "file_or_folder" ? (
-                        <input
-                          type="checkbox"
-                          checked={!!selectedIds[it.id]}
-                          onChange={(e) =>
-                            setSelectedIds((s) => ({ ...s, [it.id]: e.target.checked }))
-                          }
-                        />
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                    <td>
-                      <button
-                        style={{ background: "transparent", border: "none", padding: 0, color: "inherit" }}
-                        onClick={() => runExplain(it)}
-                      >
-                        {it.name}
-                      </button>
-                      {it.path ? (
-                        <div className="muted" style={{ marginTop: 4 }}>
-                          {it.path}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td>{it.item_type.replaceAll("_", " ")}</td>
-                    <td>{bucketPill(it.rule_bucket)}</td>
-                    <td>{it.rank_memory_impact?.toFixed(0) ?? "—"}</td>
-                    <td>{it.rank_gaming_impact?.toFixed(0) ?? "—"}</td>
-                    <td>{it.rank_deletion_risk?.toFixed(0) ?? "—"}</td>
-                    <td>{it.reasoning}</td>
-                  </tr>
-                ))}
+                {displayedItems.map((it) => {
+                  const intel = getIntel(it);
+                  const unkSvc = it.item_type === "service" && knownLabel(it) === "unknown";
+                  const vendorLine =
+                    intel.vendor || intel.category
+                      ? `${intel.vendor ?? "—"} · ${intel.category ?? "—"}`
+                      : "—";
+                  return (
+                    <tr
+                      key={it.id}
+                      className={unkSvc ? "row-unknown-svc" : undefined}
+                      onDoubleClick={() => runExplain(it)}
+                    >
+                      <td>
+                        {it.item_type === "file_or_folder" ? (
+                          <input
+                            type="checkbox"
+                            checked={!!selectedIds[it.id]}
+                            onChange={(e) =>
+                              setSelectedIds((s) => ({ ...s, [it.id]: e.target.checked }))
+                            }
+                          />
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td>{knownPill(it)}</td>
+                      <td>
+                        <button
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            padding: 0,
+                            color: "inherit",
+                          }}
+                          onClick={() => runExplain(it)}
+                        >
+                          {it.name}
+                        </button>
+                        {unkSvc ? (
+                          <div className="warn-inline" style={{ marginTop: 4 }}>
+                            Unknown service — identify in Services console before disabling.
+                          </div>
+                        ) : null}
+                        {it.path ? (
+                          <div className="muted" style={{ marginTop: 4 }}>
+                            {it.path}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>
+                        <span style={{ fontSize: 12 }}>{vendorLine}</span>
+                        {intel.gaming_impact ? (
+                          <div className="muted" style={{ fontSize: 11 }}>
+                            gaming: {intel.gaming_impact}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>{it.item_type.replaceAll("_", " ")}</td>
+                      <td>{bucketPill(it.rule_bucket)}</td>
+                      <td>{it.rank_memory_impact?.toFixed(0) ?? "—"}</td>
+                      <td>{it.rank_gaming_impact?.toFixed(0) ?? "—"}</td>
+                      <td>{it.rank_deletion_risk?.toFixed(0) ?? "—"}</td>
+                      <td>{it.reasoning}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

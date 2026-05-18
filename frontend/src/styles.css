@@ -178,6 +178,32 @@ tr:hover td {
   border-color: rgba(255, 123, 123, 0.35);
 }
 
+.pill.intel-known {
+  border-color: rgba(125, 255, 179, 0.45);
+  color: var(--ok);
+}
+
+.pill.intel-unknown {
+  border-color: rgba(255, 198, 109, 0.55);
+  color: var(--warn);
+}
+
+.pill.intel-na {
+  border-color: rgba(139, 152, 168, 0.4);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+tr.row-unknown-svc {
+  box-shadow: inset 0 0 0 1px rgba(255, 198, 109, 0.35);
+  background: rgba(255, 198, 109, 0.04);
+}
+
+.warn-inline {
+  color: var(--warn);
+  font-size: 11px;
+}
+
 .side {
   display: grid;
   gap: 12px;

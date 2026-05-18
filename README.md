@@ -7,6 +7,15 @@ This repository contains:
 - `backend/`: Python **FastAPI** service, **SQLite** storage, modular scanners, deterministic rules engine, local ML-assisted ranking, quarantine + audit logging.
 - `frontend/`: **Tauri + React + Vite** UI (dark dashboard, sortable inventory, charts, Explain This, Safety Center, mode switching).
 
+## v0.3 (Windows Intelligence Database)
+
+- **Local encyclopedia**: `backend/data/windows_intelligence.json` — vendor/category, plain-English explanations, qualitative impact and risk hints for common Windows and gaming ecosystem software (no cloud APIs).
+- **Intelligence service**: `backend/app/services/intelligence_service.py` — exact → alias → conservative fuzzy; unknown items stay **unknown / ask user** (never marked “safe” by omission).
+- **Pipeline**: scans apply **rules → intelligence enrichment → ML ranking** (`backend/app/services/scan_service.py`); protected / critical rule buckets are **never** downgraded by intelligence.
+- **Explain This**: prefers intelligence text when present; critical heuristics still override (`backend/app/engine/explain.py`).
+- **UI**: Known / Unknown badges, vendor & category columns, stronger warnings for **unknown services**, filters (known, gaming / startup / risk).
+- **Docs**: `docs/INTELLIGENCE_DATABASE.md` (schema, contribution, safety policy).
+
 ## v0.2 (safety and packaging hardening)
 
 - **Filesystem scans**: directory walks use **`bounded_walk`** (`backend/app/utils/fs.py`) with caps on files, depth, bytes inspected, deadlines, symlink loop handling, and capped duplicate hashing (`backend/app/scanners/scan_limits.py`). Startup folders and browser profile sizing use the same walker.
@@ -73,6 +82,7 @@ Layers are intentionally separated:
 - **Scanners** (`backend/app/scanners/`): gather facts (processes, services, startup, tasks, filesystem, browser trees).
 - **Rules engine** (`backend/app/engine/rules_engine.py`): deterministic safety and classification buckets (process criticality delegates to **`protected_registry`**).
 - **ML ranker** (`backend/app/engine/ml_ranker.py`): local, feature-based ranking and explain-supporting scores. Optional **scikit-learn** calibrator trained on synthetic data mirroring the heuristic mapping; **never** authorizes deletion.
+- **Intelligence** (`backend/data/windows_intelligence.json`, `backend/app/services/intelligence_service.py`): local explanations and conservative classification hints; **never** enables deletion alone.
 - **Actions** (`backend/app/actions/`): quarantine moves, assisted cleanup orchestration, performance sessions.
 - **Persistence** (`backend/sql/schema.sql`): scans, items, audit log, quarantine metadata, user feedback for local learning nudges.
 

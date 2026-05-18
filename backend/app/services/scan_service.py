@@ -27,6 +27,7 @@ from app.scanners.services import scan_services
 from app.scanners.startup import scan_startup
 from app.scanners.tasks import scan_scheduled_tasks
 from app.services.feedback_service import feedback_nudge_for
+from app.services.intelligence_service import apply_intelligence
 
 
 _sklearn_model = train_synthetic_calibrator_if_available()
@@ -116,7 +117,8 @@ async def run_full_scan(mode: PermissionMode) -> ScanResult:
     for it in raw_items:
         rules = classify_item(it, allow, block)
         merged = merge_rules_into_item(it, rules)
-        ranked = optional_sklearn_blend(merged, _sklearn_model)
+        enriched = apply_intelligence(merged)
+        ranked = optional_sklearn_blend(enriched, _sklearn_model)
         nudge = await feedback_nudge_for(ranked)
         if nudge != 0.0 and ranked.rank_usefulness is not None:
             ranked = ranked.model_copy(
@@ -255,7 +257,8 @@ async def latest_scan_from_db() -> ScanResult | None:
         for it in items:
             rules = classify_item(it, allow, block)
             merged = merge_rules_into_item(it, rules)
-            restored.append(optional_sklearn_blend(merged, _sklearn_model))
+            enriched = apply_intelligence(merged)
+            restored.append(optional_sklearn_blend(enriched, _sklearn_model))
         summary = ScanSummary(
             scan_id=scan_id,
             platform=platform or str(summary_dict.get("platform", "unknown")),
