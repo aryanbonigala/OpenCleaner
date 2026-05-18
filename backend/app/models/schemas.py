@@ -1,44 +1,27 @@
 from __future__ import annotations
 
-from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.models.enums import ItemType, PermissionMode, PerformancePreset, RiskBucket
+from app.models.scan_item import SCAN_SCHEMA_VERSION, ScanItem
 
-class PermissionMode(str, Enum):
-    read_only = "read_only"
-    assisted = "assisted"
-    performance = "performance"
-
-
-class PerformancePreset(str, Enum):
-    max_fps = "max_fps"
-    min_ram = "min_ram"
-    streaming = "streaming"
-    battery_saver = "battery_saver"
-
-
-class ItemType(str, Enum):
-    process = "process"
-    service = "service"
-    startup_entry = "startup_entry"
-    scheduled_task = "scheduled_task"
-    file_or_folder = "file_or_folder"
-    browser_profile = "browser_profile"
-    duplicate_group = "duplicate_group"
-    orphan_app = "orphan_app"
-
-
-class RiskBucket(str, Enum):
-    safe_to_remove = "safe_to_remove"
-    probably_safe = "probably_safe"
-    ask_user = "ask_user"
-    unknown = "unknown"
-    risky_system_critical = "risky_system_critical"
+# Re-export enums for backward compatibility
+__all__ = [
+    "ItemType",
+    "PermissionMode",
+    "PerformancePreset",
+    "RiskBucket",
+    "ScoredItem",
+    "ScanItem",
+    "SCAN_SCHEMA_VERSION",
+]
 
 
 class ScoredItem(BaseModel):
+    """Legacy scanner / engine row — prefer ScanItem at API boundaries."""
+
     id: str
     category: str
     item_type: ItemType
@@ -61,7 +44,7 @@ class ScoredItem(BaseModel):
 
 
 class ExplainRequest(BaseModel):
-    item: ScoredItem
+    item: ScanItem
 
 
 class ExplainResponse(BaseModel):
@@ -77,27 +60,46 @@ class ExplainResponse(BaseModel):
 
 class ScanSummary(BaseModel):
     scan_id: str
+    scan_schema_version: int = SCAN_SCHEMA_VERSION
     platform: str
     mode: PermissionMode
     items_count: int
     buckets: dict[str, int]
     disk_usage_sample: dict[str, Any] | None = None
+    generated_at: str | None = None
+    scanner_warnings: list[str] = Field(default_factory=list)
 
 
 class ScanResult(BaseModel):
     summary: ScanSummary
-    items: list[ScoredItem]
+    items: list[ScanItem]
 
 
 class CleanupPreviewRequest(BaseModel):
     item_ids: list[str]
     confirm_medium_risk: bool = False
+    include_recycle_bin: bool = False
+
+
+class CleanupPreviewResponse(BaseModel):
+    preview_id: str
+    scan_id: str
+    estimated_bytes: int
+    estimated_mb: float
+    counts: dict[str, int]
+    items: list[dict[str, Any]]
+    include_recycle_bin: bool
+    recycle_bin_note: str | None = None
+    confirm_medium_risk: bool
+    disclaimer: str
 
 
 class CleanupExecuteRequest(BaseModel):
+    preview_id: str
     item_ids: list[str]
     confirm_medium_risk: bool = False
     include_recycle_bin: bool = False
+    confirm_permanent_delete: bool = False
 
 
 class QuarantineEntry(BaseModel):

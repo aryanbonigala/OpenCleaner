@@ -8,9 +8,11 @@ from typing import Any
 import aiosqlite
 
 from app.db import append_audit, db_conn
-from app.engine.ml_ranker import optional_sklearn_blend, train_synthetic_calibrator_if_available
-from app.engine.rules_engine import classify_item, merge_rules_into_item
+from app.models.scan_item import SCAN_SCHEMA_VERSION, ScanItem, utc_now_iso
 from app.models.schemas import ItemType, PermissionMode, RiskBucket, ScoredItem, ScanResult, ScanSummary
+from app.pipeline.normalize import normalize_scored_item
+from app.pipeline.reasoning import run_reasoning_pipeline, scan_item_from_stored_payload
+from app.pipeline.serialize import detail_json_for_storage, serialize_scan_result_object
 from app.platform.detect import os_friendly_name
 from app.scanners.browser import scan_browser_profiles
 from app.scanners.files import (
@@ -27,10 +29,7 @@ from app.scanners.services import scan_services
 from app.scanners.startup import scan_startup
 from app.scanners.tasks import scan_scheduled_tasks
 from app.services.feedback_service import feedback_nudge_for
-from app.services.intelligence_service import apply_intelligence
-
-
-_sklearn_model = train_synthetic_calibrator_if_available()
+from app.services import scan_state
 
 
 async def _load_lists() -> tuple[list[str], list[str]]:
@@ -55,91 +54,91 @@ def _env_use_mock() -> bool:
     return os.environ.get("OPENCLEANER_USE_MOCK", "").lower() in ("1", "true", "yes")
 
 
+def _collect_raw_scored() -> tuple[list[ScoredItem], list[str]]:
+    raw_items: list[ScoredItem] = []
+    warnings: list[str] = []
+    scanners = (
+        ("processes", scan_processes),
+        ("services", scan_services),
+        ("startup", scan_startup),
+        ("scheduled_tasks", scan_scheduled_tasks),
+        ("temp_and_cache", scan_temp_and_cache),
+        ("downloads", scan_downloads),
+        ("desktop_clutter", scan_desktop_clutter),
+        ("browser_profiles", scan_browser_profiles),
+        ("duplicates", scan_duplicates_limited),
+        ("large_unused", scan_large_unused_candidates),
+        ("orphans", scan_orphans_lightweight),
+    )
+    if _env_use_mock():
+        raw_items.extend(raw_to_scored(x) for x in load_mock_scan())
+    else:
+        for label, fn in scanners:
+            try:
+                raw_items.extend(fn())
+            except Exception as exc:
+                warnings.append(f"Scanner “{label}” did not complete: {exc}")
+    if not raw_items and not _env_use_mock():
+        raw_items.extend(raw_to_scored(x) for x in load_mock_scan())
+        if not warnings:
+            warnings.append("Live scanners returned no items; loaded sample dataset instead.")
+    return raw_items, warnings
+
+
+async def _finalize_items(raw_items: list[ScoredItem], allow: list[str], block: list[str]) -> list[ScanItem]:
+    finalized: list[ScanItem] = []
+    for raw in raw_items:
+        base = normalize_scored_item(raw)
+        nudge = await feedback_nudge_for(
+            ScoredItem(
+                id=base.id,
+                category=base.source,
+                item_type=base.item_type,
+                name=base.raw_name,
+                path=base.path,
+                detail=base.scanner_facts,
+                rule_bucket=base.bucket,
+                confidence=base.confidence,
+                reasoning=base.explanation.summary,
+            )
+        )
+        item = run_reasoning_pipeline(base, allow=allow, block=block, feedback_nudge=nudge)
+        finalized.append(item)
+    return finalized
+
+
 async def run_full_scan(mode: PermissionMode) -> ScanResult:
+    if scan_state.is_scan_in_progress():
+        raise RuntimeError("A scan is already in progress. Wait for it to finish before starting another.")
+    scan_state.begin_scan()
+    try:
+        return await _run_full_scan_inner(mode)
+    finally:
+        scan_state.end_scan()
+
+
+async def _run_full_scan_inner(mode: PermissionMode) -> ScanResult:
     allow, block = await _load_lists()
     scan_id = str(uuid.uuid4())
     platform = os_friendly_name()
 
-    raw_items: list[ScoredItem] = []
-
-    if _env_use_mock():
-        raw_items.extend(raw_to_scored(x) for x in load_mock_scan())
-    else:
-        try:
-            raw_items.extend(scan_processes())
-        except Exception:
-            pass
-        try:
-            raw_items.extend(scan_services())
-        except Exception:
-            pass
-        try:
-            raw_items.extend(scan_startup())
-        except Exception:
-            pass
-        try:
-            raw_items.extend(scan_scheduled_tasks())
-        except Exception:
-            pass
-        try:
-            raw_items.extend(scan_temp_and_cache())
-        except Exception:
-            pass
-        try:
-            raw_items.extend(scan_downloads())
-        except Exception:
-            pass
-        try:
-            raw_items.extend(scan_desktop_clutter())
-        except Exception:
-            pass
-        try:
-            raw_items.extend(scan_browser_profiles())
-        except Exception:
-            pass
-        try:
-            raw_items.extend(scan_duplicates_limited())
-        except Exception:
-            pass
-        try:
-            raw_items.extend(scan_large_unused_candidates())
-        except Exception:
-            pass
-        try:
-            raw_items.extend(scan_orphans_lightweight())
-        except Exception:
-            pass
-
-    if not raw_items and not _env_use_mock():
-        raw_items.extend(raw_to_scored(x) for x in load_mock_scan())
-
-    finalized: list[ScoredItem] = []
-    for it in raw_items:
-        rules = classify_item(it, allow, block)
-        merged = merge_rules_into_item(it, rules)
-        enriched = apply_intelligence(merged)
-        ranked = optional_sklearn_blend(enriched, _sklearn_model)
-        nudge = await feedback_nudge_for(ranked)
-        if nudge != 0.0 and ranked.rank_usefulness is not None:
-            ranked = ranked.model_copy(
-                update={
-                    "rank_usefulness": float(max(0.0, min(100.0, ranked.rank_usefulness + nudge))),
-                    "reasoning": ranked.reasoning + f" (local feedback nudge {nudge:+.1f})",
-                }
-            )
-        finalized.append(ranked)
+    raw, warnings = _collect_raw_scored()
+    finalized = await _finalize_items(raw, allow, block)
 
     buckets: dict[str, int] = {}
     for it in finalized:
-        buckets[it.rule_bucket.value] = buckets.get(it.rule_bucket.value, 0) + 1
+        buckets[it.bucket.value] = buckets.get(it.bucket.value, 0) + 1
 
     summary = ScanSummary(
         scan_id=scan_id,
+        scan_schema_version=SCAN_SCHEMA_VERSION,
         platform=platform,
         mode=mode,
         items_count=len(finalized),
         buckets=buckets,
         disk_usage_sample=_disk_snapshot(),
+        generated_at=utc_now_iso(),
+        scanner_warnings=warnings,
     )
 
     await _persist_scan(scan_id, platform, mode.value, finalized, summary)
@@ -179,7 +178,9 @@ def _disk_snapshot() -> dict[str, Any]:
         return {"partitions": []}
 
 
-async def _persist_scan(scan_id: str, platform: str, mode: str, items: list[ScoredItem], summary: ScanSummary) -> None:
+async def _persist_scan(
+    scan_id: str, platform: str, mode: str, items: list[ScanItem], summary: ScanSummary
+) -> None:
     async with await db_conn() as db:
         await db.execute(
             """
@@ -189,7 +190,7 @@ async def _persist_scan(scan_id: str, platform: str, mode: str, items: list[Scor
             (scan_id, platform, mode, summary.model_dump_json()),
         )
         for it in items:
-            detail_json = json.dumps(it.detail, ensure_ascii=False)
+            detail_json = detail_json_for_storage(it)
             await db.execute(
                 """
                 INSERT INTO scan_items (
@@ -200,15 +201,15 @@ async def _persist_scan(scan_id: str, platform: str, mode: str, items: list[Scor
                 (
                     it.id,
                     scan_id,
-                    it.category,
+                    it.source,
                     it.item_type.value,
-                    it.name,
+                    it.raw_name,
                     it.path,
                     detail_json,
-                    it.rule_bucket.value,
-                    float(it.ml_rank_score or 0.0),
+                    it.bucket.value,
+                    float(it.metrics.ml_rank_score or 0.0),
                     float(it.confidence),
-                    it.reasoning,
+                    it.explanation.summary,
                 ),
             )
         await db.commit()
@@ -235,36 +236,55 @@ async def latest_scan_from_db() -> ScanResult | None:
             (scan_id,),
         )
         rows = await cur2.fetchall()
-        items: list[ScoredItem] = []
+        allow, block = await _load_lists()
+        restored: list[ScanItem] = []
         for r in rows:
             detail = json.loads(str(r["detail_json"] or "{}"))
-            items.append(
-                ScoredItem(
-                    id=str(r["id"]),
-                    category=str(r["category"]),
-                    item_type=ItemType(str(r["item_type"])),
-                    name=str(r["name"]),
-                    path=str(r["path"]) if r["path"] else None,
-                    detail=detail,
-                    rule_bucket=RiskBucket(str(r["rule_bucket"])),
-                    ml_rank_score=float(r["ml_score"] or 0.0),
-                    confidence=float(r["confidence"]),
-                    reasoning=str(r["reasoning"]),
-                )
-            )
-        allow, block = await _load_lists()
-        restored: list[ScoredItem] = []
-        for it in items:
-            rules = classify_item(it, allow, block)
-            merged = merge_rules_into_item(it, rules)
-            enriched = apply_intelligence(merged)
-            restored.append(optional_sklearn_blend(enriched, _sklearn_model))
+            payload = {
+                "id": str(r["id"]),
+                "category": str(r["category"]),
+                "item_type": ItemType(str(r["item_type"])),
+                "name": str(r["name"]),
+                "path": str(r["path"]) if r["path"] else None,
+                "detail": detail,
+                "rule_bucket": RiskBucket(str(r["rule_bucket"])),
+                "ml_score": float(r["ml_score"] or 0.0),
+                "confidence": float(r["confidence"]),
+                "reasoning": str(r["reasoning"]),
+            }
+            restored.append(scan_item_from_stored_payload(payload, allow=allow, block=block))
+
+        buckets: dict[str, int] = {}
+        for it in restored:
+            buckets[it.bucket.value] = buckets.get(it.bucket.value, 0) + 1
+
         summary = ScanSummary(
             scan_id=scan_id,
+            scan_schema_version=int(summary_dict.get("scan_schema_version", SCAN_SCHEMA_VERSION)),
             platform=platform or str(summary_dict.get("platform", "unknown")),
             mode=mode,
             items_count=len(restored),
-            buckets=dict(summary_dict.get("buckets", {})),
+            buckets=buckets or dict(summary_dict.get("buckets", {})),
             disk_usage_sample=summary_dict.get("disk_usage_sample"),
+            generated_at=summary_dict.get("generated_at"),
+            scanner_warnings=list(summary_dict.get("scanner_warnings", [])),
         )
         return ScanResult(summary=summary, items=restored)
+
+
+def export_canonical_payload(result: ScanResult) -> dict[str, Any]:
+    from app.models.scan_item import CanonicalScanResult, CanonicalScanSummary
+
+    canonical = CanonicalScanResult(
+        summary=CanonicalScanSummary(
+            scan_id=result.summary.scan_id,
+            platform=result.summary.platform,
+            mode=result.summary.mode,
+            items_count=result.summary.items_count,
+            buckets=result.summary.buckets,
+            disk_usage_sample=result.summary.disk_usage_sample,
+            generated_at=result.summary.generated_at or utc_now_iso(),
+        ),
+        items=result.items,
+    )
+    return serialize_scan_result_object(canonical)

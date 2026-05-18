@@ -7,12 +7,13 @@ from pathlib import Path
 from app.actions.quarantine import quarantine_path
 from app.db import append_audit
 from app.engine.rules_engine import is_critical_path
-from app.models.schemas import PermissionMode, RiskBucket, ScoredItem
+from app.models.schemas import PermissionMode, RiskBucket
+from app.models.scan_item import ScanItem
 
 
 async def assisted_cleanup(
     mode: PermissionMode,
-    items: list[ScoredItem],
+    items: list[ScanItem],
     confirm_medium_risk: bool,
     include_recycle_bin: bool = False,
 ) -> dict:
@@ -27,6 +28,12 @@ async def assisted_cleanup(
         if it.item_type.value != "file_or_folder":
             actions.append({"id": it.id, "skipped": True, "reason": "not a file target"})
             continue
+        if not it.cleanup_eligible and not confirm_medium_risk:
+            actions.append({"id": it.id, "skipped": True, "reason": "action_gating: not cleanup eligible"})
+            continue
+        if it.protected:
+            actions.append({"id": it.id, "skipped": True, "reason": "protected item"})
+            continue
         if not it.path:
             actions.append({"id": it.id, "skipped": True, "reason": "missing path"})
             continue
@@ -39,14 +46,14 @@ async def assisted_cleanup(
         if confirm_medium_risk:
             allowed_buckets.add(RiskBucket.probably_safe)
 
-        hint = str(it.detail.get("category_hint") or "")
+        hint = str(it.subtype or it.scanner_facts.get("category_hint") or "")
         low_risk_hints = {
             "temp_cache",
             "installer_residual",
             "downloads_general",
         }
 
-        if it.rule_bucket not in allowed_buckets and not (
+        if it.bucket not in allowed_buckets and not (
             confirm_medium_risk and hint in low_risk_hints
         ):
             actions.append(
@@ -61,7 +68,7 @@ async def assisted_cleanup(
         try:
             if p.is_file():
                 size = p.stat().st_size
-                meta = {"item_id": it.id, "bucket": it.rule_bucket.value, "hint": hint}
+                meta = {"item_id": it.id, "bucket": it.bucket.value, "hint": hint}
                 qid = await quarantine_path(p, meta)
                 reclaimed_bytes += size
                 actions.append({"id": it.id, "quarantine_id": qid, "bytes": size})

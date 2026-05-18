@@ -35,16 +35,20 @@ export type RiskBucket =
   | "unknown"
   | "risky_system_critical";
 
-export interface ScoredItem {
-  id: string;
-  category: string;
-  item_type: ItemType;
-  name: string;
-  path?: string | null;
-  detail: Record<string, unknown>;
-  rule_bucket: RiskBucket;
-  confidence: number;
-  reasoning: string;
+export interface ProvenanceRecord {
+  stage: string;
+  decided_by: string;
+  evidence: string[];
+  matched_rule?: string | null;
+  matched_intelligence_entry?: string | null;
+  ml_score_source?: string | null;
+  confidence?: number | null;
+}
+
+export interface ItemMetrics {
+  memory_mb?: number | null;
+  cpu_percent?: number | null;
+  size_mb?: number | null;
   ml_rank_score?: number | null;
   rank_startup_impact?: number | null;
   rank_memory_impact?: number | null;
@@ -55,18 +59,124 @@ export interface ScoredItem {
   rank_usefulness?: number | null;
 }
 
+export interface IntelligenceSnapshot {
+  known?: boolean;
+  applicable?: boolean;
+  match_kind?: string | null;
+  name?: string | null;
+  vendor?: string | null;
+  category?: string | null;
+  plain_english_description?: string | null;
+  safe_to_stop?: boolean | null;
+  safe_to_disable_startup?: boolean | null;
+  safe_to_delete?: boolean | null;
+  gaming_impact?: string | null;
+  memory_impact?: string | null;
+  startup_impact?: string | null;
+  risk_level?: string | null;
+  confidence?: number | null;
+  warning_if_changed?: string | null;
+  recommended_action?: string | null;
+  rules_protect?: boolean;
+}
+
+export interface ExplanationBlock {
+  summary: string;
+  headline?: string | null;
+}
+
+export interface Recommendations {
+  primary?: string | null;
+  warnings?: string[];
+}
+
+/** Canonical scan row (v0.4+). */
+export interface ScanItem {
+  id: string;
+  scan_version: number;
+  item_type: ItemType;
+  source: string;
+  subtype?: string | null;
+  display_name: string;
+  raw_name: string;
+  path?: string | null;
+  vendor?: string | null;
+  category?: string | null;
+  metrics: ItemMetrics;
+  intelligence?: IntelligenceSnapshot | null;
+  bucket: RiskBucket;
+  risk_level: string;
+  protected: boolean;
+  cleanup_eligible: boolean;
+  performance_eligible: boolean;
+  explanation: ExplanationBlock;
+  recommendations: Recommendations;
+  provenance: ProvenanceRecord[];
+  timestamps: Record<string, string>;
+  scanner_facts: Record<string, unknown>;
+  confidence: number;
+}
+
+/** @deprecated Use ScanItem — kept for gradual migration */
+export type ScoredItem = ScanItem;
+
 export interface ScanSummary {
   scan_id: string;
+  scan_schema_version?: number;
   platform: string;
   mode: PermissionMode;
   items_count: number;
   buckets: Record<string, number>;
   disk_usage_sample?: Record<string, unknown> | null;
+  generated_at?: string | null;
+  scanner_warnings?: string[];
+}
+
+export interface CleanupPreviewItem {
+  id: string;
+  display_name: string;
+  path?: string | null;
+  bucket: string;
+  status: string;
+  reason: string;
+  why_safe_or_unsafe?: string;
+  estimated_bytes?: number;
+}
+
+export interface CleanupPreviewResponse {
+  preview_id: string;
+  scan_id: string;
+  estimated_bytes: number;
+  estimated_mb: number;
+  counts: { selected: number; will_quarantine: number; skipped: number; blocked: number };
+  items: CleanupPreviewItem[];
+  include_recycle_bin: boolean;
+  recycle_bin_note?: string | null;
+  confirm_medium_risk: boolean;
+  disclaimer: string;
+}
+
+export interface CleanupExecuteResult {
+  reclaimed_bytes: number;
+  reclaimed_mb: number;
+  actions: Record<string, unknown>[];
+  errors: string[];
+  summary?: {
+    preview_id: string;
+    estimated_bytes: number;
+    confirmed_bytes: number;
+    estimated_mb: number;
+    confirmed_mb: number;
+    quarantined: number;
+    skipped: number;
+    failed: number;
+    blocked: number;
+  };
 }
 
 export interface ScanResult {
   summary: ScanSummary;
-  items: ScoredItem[];
+  items: ScanItem[];
 }
 
 export interface ExplainResponse {
@@ -80,8 +190,21 @@ export interface ExplainResponse {
   local_ml_note: string;
 }
 
+export function parseApiError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  try {
+    const parsed = JSON.parse(raw) as { detail?: string };
+    if (parsed.detail) return parsed.detail;
+  } catch {
+    /* plain text */
+  }
+  return raw || "Request failed";
+}
+
 export const client = {
-  health: () => api<{ status: string }>("/health"),
+  health: () =>
+    api<{ status: string; version: string; api_version: string; scan_in_progress: string }>("/health"),
+  scanStatus: () => api<{ scan_in_progress: boolean }>("/api/scan/status"),
   getMode: () => api<{ mode: PermissionMode }>("/api/mode"),
   setMode: (mode: PermissionMode) =>
     api<{ mode: PermissionMode }>("/api/mode", {
@@ -97,15 +220,30 @@ export const client = {
     api<{ cpu_percent: number; memory: { total_gb: number; used_gb: number; percent: number } }>(
       "/api/metrics"
     ),
-  explain: (item: ScoredItem) =>
+  explain: (item: ScanItem) =>
     api<ExplainResponse>("/api/explain", {
       method: "POST",
       body: JSON.stringify({ item }),
     }),
-  cleanup: (item_ids: string[], confirm_medium_risk: boolean, include_recycle_bin: boolean) =>
-    api("/api/cleanup/execute", {
+  cleanupPreview: (
+    item_ids: string[],
+    confirm_medium_risk: boolean,
+    include_recycle_bin: boolean
+  ) =>
+    api<CleanupPreviewResponse>("/api/cleanup/preview", {
       method: "POST",
       body: JSON.stringify({ item_ids, confirm_medium_risk, include_recycle_bin }),
+    }),
+  cleanupExecute: (body: {
+    preview_id: string;
+    item_ids: string[];
+    confirm_medium_risk: boolean;
+    include_recycle_bin: boolean;
+    confirm_permanent_delete: boolean;
+  }) =>
+    api<CleanupExecuteResult>("/api/cleanup/execute", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
   quarantineList: () => api<{ entries: unknown[] }>("/api/quarantine"),
   restore: (id: string) =>
@@ -127,7 +265,7 @@ export const client = {
     api<{ resumed: number[] }>("/api/performance/stop", {
       method: "POST",
     }),
-  feedback: (item: ScoredItem, decision: "keep" | "remove" | "ignore") =>
+  feedback: (item: ScanItem, decision: "keep" | "remove" | "ignore") =>
     api("/api/feedback", {
       method: "POST",
       body: JSON.stringify({ item, decision, weight: 1.0 }),

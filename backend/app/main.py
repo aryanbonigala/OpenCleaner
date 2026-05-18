@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from starlette.responses import PlainTextResponse
 
 from app.actions.cleanup import assisted_cleanup
+from app.actions.cleanup_preview import preview_cleanup_items
 from app.actions.performance import (
     active_session,
     count_running_matches_hard_protected,
@@ -25,6 +26,8 @@ from app.db import append_audit, db_conn, get_setting, init_db, set_setting
 from app.engine.explain import explain_item
 from app.models.schemas import (
     CleanupExecuteRequest,
+    CleanupPreviewRequest,
+    CleanupPreviewResponse,
     ExplainRequest,
     ExplainResponse,
     FeedbackRequest,
@@ -33,11 +36,14 @@ from app.models.schemas import (
     PerformancePreviewRequest,
     PerformanceSessionRequest,
     ScanResult,
-    ScoredItem,
 )
+from app.services import scan_state
+from app.version import API_VERSION, APP_VERSION
+from app.models.scan_item import ScanItem
+from app.pipeline.adapters import scored_from_scan_item
 from app.engine.protected_registry import protected_pattern_count
 from app.services.feedback_service import record_feedback
-from app.services.scan_service import latest_scan_from_db, run_full_scan
+from app.services.scan_service import export_canonical_payload, latest_scan_from_db, run_full_scan
 
 
 @asynccontextmanager
@@ -46,7 +52,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="OpenCleaner AI", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="OpenCleaner AI", version=API_VERSION, lifespan=lifespan)
 
 settings = get_settings()
 app.add_middleware(
@@ -60,7 +66,18 @@ app.add_middleware(
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "component": "opencleaner-backend"}
+    return {
+        "status": "ok",
+        "component": "opencleaner-backend",
+        "version": APP_VERSION,
+        "api_version": API_VERSION,
+        "scan_in_progress": str(scan_state.is_scan_in_progress()).lower(),
+    }
+
+
+@app.get("/api/scan/status")
+async def scan_status() -> dict[str, bool]:
+    return {"scan_in_progress": scan_state.is_scan_in_progress()}
 
 
 @app.get("/api/mode")
@@ -78,9 +95,14 @@ async def set_mode(req: ModeSetRequest) -> dict[str, str]:
 
 @app.post("/api/scan", response_model=ScanResult)
 async def scan() -> ScanResult:
+    if scan_state.is_scan_in_progress():
+        raise HTTPException(status_code=409, detail="A scan is already running. Please wait for it to finish.")
     mode_raw = await get_setting("permission_mode", PermissionMode.read_only.value)
     mode = PermissionMode(str(mode_raw))
-    return await run_full_scan(mode)
+    try:
+        return await run_full_scan(mode)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @app.get("/api/scan/latest", response_model=ScanResult | None)
@@ -94,13 +116,13 @@ class ExplainBody(BaseModel):
 
 @app.post("/api/explain", response_model=ExplainResponse)
 async def explain(body: ExplainBody) -> ExplainResponse:
-    item = ScoredItem.model_validate(body.item)
+    item = ScanItem.model_validate(body.item)
     return explain_item(ExplainRequest(item=item))
 
 
 @app.post("/api/feedback")
 async def feedback(req: FeedbackRequest) -> dict[str, Any]:
-    item = ScoredItem.model_validate(req.item)
+    item = ScanItem.model_validate(req.item)
     await record_feedback(item, req.decision, req.weight)
     await append_audit(
         "user_feedback",
@@ -130,17 +152,104 @@ async def metrics() -> dict[str, Any]:
         return {"cpu_percent": 0, "memory": {"total_gb": 0, "used_gb": 0, "percent": 0}}
 
 
-@app.post("/api/cleanup/execute")
-async def cleanup_execute(req: CleanupExecuteRequest) -> dict[str, Any]:
-    mode_raw = await get_setting("permission_mode", PermissionMode.read_only.value)
-    mode = PermissionMode(str(mode_raw))
+@app.post("/api/cleanup/preview", response_model=CleanupPreviewResponse)
+async def cleanup_preview(req: CleanupPreviewRequest) -> CleanupPreviewResponse:
+    if scan_state.is_scan_in_progress():
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot preview cleanup while a scan is running. Wait for the scan to finish.",
+        )
     latest = await latest_scan_from_db()
     if latest is None:
-        raise HTTPException(status_code=400, detail="no scan available — run scan first")
+        raise HTTPException(status_code=400, detail="No scan available. Run a scan first.")
+    if not req.item_ids:
+        raise HTTPException(status_code=400, detail="Select at least one item to preview cleanup.")
     selected = [it for it in latest.items if it.id in set(req.item_ids)]
-    return await assisted_cleanup(
+    if len(selected) != len(set(req.item_ids)):
+        raise HTTPException(status_code=400, detail="Some selected item IDs were not found in the latest scan.")
+    payload = preview_cleanup_items(
+        selected,
+        confirm_medium_risk=req.confirm_medium_risk,
+        include_recycle_bin=req.include_recycle_bin,
+    )
+    preview_id = scan_state.store_cleanup_preview(
+        scan_id=latest.summary.scan_id,
+        item_ids=list(req.item_ids),
+        confirm_medium_risk=req.confirm_medium_risk,
+        include_recycle_bin=req.include_recycle_bin,
+        estimated_bytes=int(payload["estimated_bytes"]),
+        preview_payload=payload,
+    )
+    return CleanupPreviewResponse(
+        preview_id=preview_id,
+        scan_id=latest.summary.scan_id,
+        estimated_bytes=int(payload["estimated_bytes"]),
+        estimated_mb=float(payload["estimated_mb"]),
+        counts=dict(payload["counts"]),
+        items=list(payload["items"]),
+        include_recycle_bin=req.include_recycle_bin,
+        recycle_bin_note=payload.get("recycle_bin_note"),
+        confirm_medium_risk=req.confirm_medium_risk,
+        disclaimer=str(payload["disclaimer"]),
+    )
+
+
+@app.post("/api/cleanup/execute")
+async def cleanup_execute(req: CleanupExecuteRequest) -> dict[str, Any]:
+    if scan_state.is_scan_in_progress():
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot run cleanup while a scan is in progress.",
+        )
+    mode_raw = await get_setting("permission_mode", PermissionMode.read_only.value)
+    mode = PermissionMode(str(mode_raw))
+    if mode != PermissionMode.assisted:
+        raise HTTPException(
+            status_code=403,
+            detail="Switch to Assisted cleanup mode in Settings before quarantining files.",
+        )
+    session = scan_state.consume_cleanup_preview(req.preview_id)
+    if session is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Cleanup preview expired or missing. Run preview again before executing.",
+        )
+    if set(req.item_ids) != set(session.item_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="Selected items must match the previewed set exactly.",
+        )
+    if req.confirm_medium_risk != session.confirm_medium_risk:
+        raise HTTPException(status_code=400, detail="Medium-risk confirmation flag does not match preview.")
+    if req.include_recycle_bin != session.include_recycle_bin:
+        raise HTTPException(status_code=400, detail="Recycle Bin option does not match preview.")
+    if req.include_recycle_bin and not req.confirm_permanent_delete:
+        raise HTTPException(
+            status_code=400,
+            detail="Emptying the Recycle Bin is permanent. Set confirm_permanent_delete=true after reviewing preview.",
+        )
+    latest = await latest_scan_from_db()
+    if latest is None or latest.summary.scan_id != session.scan_id:
+        raise HTTPException(status_code=400, detail="Latest scan no longer matches this preview. Scan again.")
+    selected = [it for it in latest.items if it.id in set(req.item_ids)]
+    result = await assisted_cleanup(
         mode, selected, req.confirm_medium_risk, include_recycle_bin=req.include_recycle_bin
     )
+    quarantined = sum(1 for a in result.get("actions", []) if a.get("quarantine_id"))
+    skipped = sum(1 for a in result.get("actions", []) if a.get("skipped"))
+    failed = sum(1 for a in result.get("actions", []) if a.get("error"))
+    result["summary"] = {
+        "preview_id": req.preview_id,
+        "estimated_bytes": session.estimated_bytes,
+        "confirmed_bytes": result.get("reclaimed_bytes", 0),
+        "estimated_mb": round(session.estimated_bytes / (1024 * 1024), 3),
+        "confirmed_mb": result.get("reclaimed_mb", 0),
+        "quarantined": quarantined,
+        "skipped": skipped,
+        "failed": failed,
+        "blocked": int(session.preview_payload.get("counts", {}).get("blocked", 0)),
+    }
+    return result
 
 
 @app.get("/api/quarantine")
@@ -252,7 +361,7 @@ async def export_report(fmt: str = "json") -> Any:
         raise HTTPException(status_code=400, detail="no scan")
 
     if fmt == "json":
-        return json.loads(latest.model_dump_json())
+        return export_canonical_payload(latest)
 
     if fmt == "md":
         lines: list[str] = []
@@ -264,9 +373,11 @@ async def export_report(fmt: str = "json") -> Any:
         for k, v in latest.summary.buckets.items():
             lines.append(f"- **{k}**: {v}\n")
         lines.append("\n## Notable items\n\n")
-        for it in sorted(latest.items, key=lambda x: x.rank_deletion_risk or 0, reverse=True)[:40]:
+        for it in sorted(latest.items, key=lambda x: x.metrics.rank_deletion_risk or 0, reverse=True)[:40]:
+            prov = ", ".join(p.stage for p in it.provenance[-3:]) if it.provenance else "—"
             lines.append(
-                f"- `{it.name}` ({it.item_type.value}) — {it.rule_bucket.value} — {it.reasoning}\n"
+                f"- `{it.display_name}` ({it.item_type.value}) — {it.bucket.value} — "
+                f"{it.explanation.summary} [provenance: {prov}]\n"
             )
         return PlainTextResponse("".join(lines), media_type="text/markdown")
 

@@ -7,10 +7,12 @@ import pytest
 
 from app.engine.explain import explain_item
 from app.engine.ml_ranker import optional_sklearn_blend, train_synthetic_calibrator_if_available
+from app.engine.protected_registry import suspend_allowed_by_policy
 from app.engine.rules_engine import classify_item, merge_rules_into_item
 from app.models.schemas import ExplainRequest, ItemType, RiskBucket, ScoredItem
-from app.engine.protected_registry import suspend_allowed_by_policy
-from app.services.intelligence_service import apply_intelligence, reload_intelligence_cache_for_tests
+from app.pipeline.normalize import normalize_scored_item
+from app.pipeline.reasoning import run_reasoning_pipeline, stage_intelligence, stage_rules
+from app.services.intelligence_service import reload_intelligence_cache_for_tests
 
 
 @pytest.fixture()
@@ -30,6 +32,12 @@ def _model() -> object | None:
     return train_synthetic_calibrator_if_available()
 
 
+def _pipeline_after_rules(scored: ScoredItem, allow: list[str], block: list[str]):
+    base = normalize_scored_item(scored)
+    ruled = stage_rules(base, allow, block)
+    return stage_intelligence(ruled)
+
+
 def test_intelligence_exact_name_match(intelligence_path: Path) -> None:
     db = json.loads(intelligence_path.read_text(encoding="utf-8"))
     assert any(e.get("name", "").lower() == "discord.exe" for e in db["entries"])
@@ -44,13 +52,12 @@ def test_intelligence_exact_name_match(intelligence_path: Path) -> None:
         confidence=0.45,
         reasoning="User-mode process without strong heuristics — classification needs context.",
     )
-    rules = classify_item(item, [], [])
-    merged = merge_rules_into_item(item, rules)
-    out = apply_intelligence(merged)
-    assert out.detail["intelligence"]["known"] is True
-    assert out.detail["intelligence"]["match_kind"] == "exact"
-    assert out.rule_bucket == RiskBucket.ask_user
-    assert "Discord" in out.reasoning or "Intelligence" in out.reasoning
+    out = _pipeline_after_rules(item, [], [])
+    assert out.intelligence is not None
+    assert out.intelligence.known is True
+    assert out.intelligence.match_kind == "exact"
+    assert out.bucket == RiskBucket.ask_user
+    assert "Discord" in out.explanation.summary or "Intelligence" in out.explanation.summary
 
 
 def test_intelligence_alias_match_on_display_name(intelligence_path: Path) -> None:
@@ -67,12 +74,11 @@ def test_intelligence_alias_match_on_display_name(intelligence_path: Path) -> No
         confidence=0.52,
         reasoning="Generic Windows service — impact depends on start mode and dependencies; use Explain This.",
     )
-    rules = classify_item(item, [], [])
-    merged = merge_rules_into_item(item, rules)
-    out = apply_intelligence(merged)
-    assert out.detail["intelligence"]["known"] is True
-    assert out.detail["intelligence"]["match_kind"] == "alias"
-    assert out.detail["intelligence"]["vendor"] == "Microsoft"
+    out = _pipeline_after_rules(item, [], [])
+    assert out.intelligence is not None
+    assert out.intelligence.known is True
+    assert out.intelligence.match_kind == "alias"
+    assert out.intelligence.vendor == "Microsoft"
 
 
 def test_unknown_item_not_marked_safe_by_intelligence() -> None:
@@ -87,14 +93,12 @@ def test_unknown_item_not_marked_safe_by_intelligence() -> None:
         confidence=0.4,
         reasoning="Generic unknown.",
     )
-    rules = classify_item(item, [], [])
-    merged = merge_rules_into_item(item, rules)
-    out = apply_intelligence(merged)
-    intel = out.detail["intelligence"]
-    assert intel["known"] is False
-    assert intel.get("safe_to_delete") is False
-    assert intel.get("safe_to_stop") is None
-    assert out.rule_bucket == RiskBucket.unknown
+    out = _pipeline_after_rules(item, [], [])
+    assert out.intelligence is not None
+    assert out.intelligence.known is False
+    assert out.intelligence.safe_to_delete is False
+    assert out.intelligence.safe_to_stop is None
+    assert out.bucket == RiskBucket.unknown
 
 
 def test_rules_protected_bucket_preserved_and_enriched() -> None:
@@ -112,12 +116,12 @@ def test_rules_protected_bucket_preserved_and_enriched() -> None:
     rules = classify_item(item, [], [])
     merged = merge_rules_into_item(item, rules)
     assert merged.rule_bucket == RiskBucket.risky_system_critical
-    out = apply_intelligence(merged)
-    assert out.rule_bucket == RiskBucket.risky_system_critical
-    assert out.confidence == merged.confidence
-    assert out.reasoning == merged.reasoning
-    assert out.detail["intelligence"]["known"] is True
-    assert "Local Security" in str(out.detail["intelligence"].get("aliases", []))
+    out = _pipeline_after_rules(item, [], [])
+    assert out.bucket == RiskBucket.risky_system_critical
+    assert out.intelligence is not None
+    assert out.intelligence.known is True
+    assert out.intelligence.name == "lsass.exe"
+    assert out.intelligence.risk_level == "critical"
 
 
 def test_protected_process_cannot_be_suspended() -> None:
@@ -138,16 +142,13 @@ def test_intelligence_improves_explain_text() -> None:
         confidence=0.5,
         reasoning="",
     )
-    rules = classify_item(item, [], [])
-    merged = merge_rules_into_item(item, rules)
-    enriched = apply_intelligence(merged)
-    ex = explain_item(ExplainRequest(item=enriched))
+    out = run_reasoning_pipeline(normalize_scored_item(item), allow=[], block=[])
+    ex = explain_item(ExplainRequest(item=out))
     assert "Discord" in ex.importance
     assert "voice" in ex.importance.lower() or "chat" in ex.importance.lower()
 
 
 def test_rules_blocklist_overrides_benign_intelligence_hypothesis() -> None:
-    """If rules mark an item risky (e.g. blocklist), intelligence must not downgrade the bucket."""
     item = ScoredItem(
         id="bl1",
         category="proc",
@@ -159,11 +160,8 @@ def test_rules_blocklist_overrides_benign_intelligence_hypothesis() -> None:
         confidence=0.5,
         reasoning="",
     )
-    rules = classify_item(item, [], ["notepad.exe"])
-    merged = merge_rules_into_item(item, rules)
-    assert merged.rule_bucket == RiskBucket.risky_system_critical
-    out = apply_intelligence(merged)
-    assert out.rule_bucket == RiskBucket.risky_system_critical
+    out = _pipeline_after_rules(item, [], ["notepad.exe"])
+    assert out.bucket == RiskBucket.risky_system_critical
 
 
 def test_ml_does_not_change_rule_bucket_for_risky_items() -> None:
