@@ -1,0 +1,23 @@
+{
+  "description": "Example deterministic labels for regression-style tests and demos.",
+  "labels": [
+    {
+      "name": "csrss.exe",
+      "type": "process",
+      "expected_bucket": "risky_system_critical",
+      "notes": "Core Windows session manager"
+    },
+    {
+      "name": "GameBarPresenceWriter.exe",
+      "type": "process",
+      "expected_bucket": "unknown",
+      "notes": "Xbox/Game bar helper; user-dependent usefulness"
+    },
+    {
+      "path": "C:\\\\Users\\\\Demo\\\\AppData\\\\Local\\\\Temp\\\\*.tmp",
+      "type": "file_or_folder",
+      "expected_bucket": "safe_to_remove",
+      "notes": "Ephemeral temp under user profile"
+    }
+  ]
+}

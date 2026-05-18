@@ -1,0 +1,23 @@
+OpenCleaner AI (desktop UI mock, text layout)
+============================================
+
++----------------------------------------------------------------------------+
+| OpenCleaner AI                                    Mode: [Read-only v] Run  |
+| Local-first optimizer                                                   scan |
++----------------------------------------------------------------------------+
+| Inventory (sortable)                         | Resource snapshot + chart |
+|----------------------------------------------|---------------------------|
+| [x] file    Type    Bucket     RAM  Gaming   | CPU  12.4%    RAM  61%     |
+| ----        ------  ---------   ---  ------   | [|||||-----] bar buckets |
+| tmp123.log  file    safe         -     -      |                           |
+| SomeSvc     service unknown      -     -      | Explain This              |
+| ...                                          | - What it does: ...        |
+|                                              | - Gaming impact: ...       |
++----------------------------------------------------------------------------+
+| Assisted: [ ] medium risk  [ ] recycle bin   [ Quarantine selected ]       |
+| Performance: [ Max FPS ] [ Min RAM ] [ Streaming ] [ Battery ] [ Stop ]    |
++----------------------------------------------------------------------------+
+
+Notes:
+- "Why flagged" column always shows deterministic rule text + optional feedback nudge.
+- ML never performs destructive actions; it only ranks and supports explanations.

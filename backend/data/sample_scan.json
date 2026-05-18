@@ -1,0 +1,79 @@
+{
+  "platform": "mock-windows-10",
+  "generated_at": "2026-05-18T00:00:00Z",
+  "items": [
+    {
+      "id": "mock-proc-1",
+      "category": "processes",
+      "item_type": "process",
+      "name": "SomeUpdaterHelper.exe",
+      "path": "C:\\Program Files\\Contoso\\Updater\\SomeUpdaterHelper.exe",
+      "detail": {
+        "memory_mb": 210,
+        "cpu_percent": 4.2,
+        "gpu_heavy": false,
+        "pid": 8892
+      },
+      "rule_bucket": "unknown",
+      "confidence": 0.5,
+      "reasoning": "Synthetic example for UI/tests."
+    },
+    {
+      "id": "mock-svc-1",
+      "category": "services",
+      "item_type": "service",
+      "name": "Fax",
+      "path": null,
+      "detail": {
+        "start_type": "manual",
+        "display_name": "Fax"
+      },
+      "rule_bucket": "probably_safe",
+      "confidence": 0.7,
+      "reasoning": "Often unused on consumer PCs; verify dependencies."
+    },
+    {
+      "id": "mock-startup-1",
+      "category": "startup",
+      "item_type": "startup_entry",
+      "name": "Discord",
+      "path": "C:\\Users\\Demo\\AppData\\Local\\Discord\\Update.exe --processStart Discord.exe",
+      "detail": {
+        "startup": true,
+        "location": "HKCU\\Run"
+      },
+      "rule_bucket": "ask_user",
+      "confidence": 0.72,
+      "reasoning": "Common chat client autostart."
+    },
+    {
+      "id": "mock-file-temp-1",
+      "category": "temp_cache",
+      "item_type": "file_or_folder",
+      "name": "FXSAPIDebugLogFile.txt",
+      "path": "C:\\Users\\Demo\\AppData\\Local\\Temp\\FXSAPIDebugLogFile.txt",
+      "detail": {
+        "category_hint": "temp_cache",
+        "size_mb": 12.4,
+        "path_depth": 6
+      },
+      "rule_bucket": "safe_to_remove",
+      "confidence": 0.86,
+      "reasoning": "Typical transient log under TEMP."
+    },
+    {
+      "id": "mock-dup-1",
+      "category": "duplicates",
+      "item_type": "duplicate_group",
+      "name": "setup_v3.exe (duplicate set)",
+      "path": "C:\\Users\\Demo\\Downloads\\mirror\\setup_v3.exe",
+      "detail": {
+        "duplicate_count": 3,
+        "hash": "deadbeef"
+      },
+      "rule_bucket": "probably_safe",
+      "confidence": 0.62,
+      "reasoning": "Identical hashes across locations."
+    }
+  ]
+}
