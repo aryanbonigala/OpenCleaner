@@ -129,6 +129,49 @@ export interface ScanSummary {
   buckets: Record<string, number>;
   disk_usage_sample?: Record<string, unknown> | null;
   generated_at?: string | null;
+  scanner_warnings?: string[];
+}
+
+export interface CleanupPreviewItem {
+  id: string;
+  display_name: string;
+  path?: string | null;
+  bucket: string;
+  status: string;
+  reason: string;
+  why_safe_or_unsafe?: string;
+  estimated_bytes?: number;
+}
+
+export interface CleanupPreviewResponse {
+  preview_id: string;
+  scan_id: string;
+  estimated_bytes: number;
+  estimated_mb: number;
+  counts: { selected: number; will_quarantine: number; skipped: number; blocked: number };
+  items: CleanupPreviewItem[];
+  include_recycle_bin: boolean;
+  recycle_bin_note?: string | null;
+  confirm_medium_risk: boolean;
+  disclaimer: string;
+}
+
+export interface CleanupExecuteResult {
+  reclaimed_bytes: number;
+  reclaimed_mb: number;
+  actions: Record<string, unknown>[];
+  errors: string[];
+  summary?: {
+    preview_id: string;
+    estimated_bytes: number;
+    confirmed_bytes: number;
+    estimated_mb: number;
+    confirmed_mb: number;
+    quarantined: number;
+    skipped: number;
+    failed: number;
+    blocked: number;
+  };
 }
 
 export interface ScanResult {
@@ -147,8 +190,21 @@ export interface ExplainResponse {
   local_ml_note: string;
 }
 
+export function parseApiError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  try {
+    const parsed = JSON.parse(raw) as { detail?: string };
+    if (parsed.detail) return parsed.detail;
+  } catch {
+    /* plain text */
+  }
+  return raw || "Request failed";
+}
+
 export const client = {
-  health: () => api<{ status: string }>("/health"),
+  health: () =>
+    api<{ status: string; version: string; api_version: string; scan_in_progress: string }>("/health"),
+  scanStatus: () => api<{ scan_in_progress: boolean }>("/api/scan/status"),
   getMode: () => api<{ mode: PermissionMode }>("/api/mode"),
   setMode: (mode: PermissionMode) =>
     api<{ mode: PermissionMode }>("/api/mode", {
@@ -169,10 +225,25 @@ export const client = {
       method: "POST",
       body: JSON.stringify({ item }),
     }),
-  cleanup: (item_ids: string[], confirm_medium_risk: boolean, include_recycle_bin: boolean) =>
-    api("/api/cleanup/execute", {
+  cleanupPreview: (
+    item_ids: string[],
+    confirm_medium_risk: boolean,
+    include_recycle_bin: boolean
+  ) =>
+    api<CleanupPreviewResponse>("/api/cleanup/preview", {
       method: "POST",
       body: JSON.stringify({ item_ids, confirm_medium_risk, include_recycle_bin }),
+    }),
+  cleanupExecute: (body: {
+    preview_id: string;
+    item_ids: string[];
+    confirm_medium_risk: boolean;
+    include_recycle_bin: boolean;
+    confirm_permanent_delete: boolean;
+  }) =>
+    api<CleanupExecuteResult>("/api/cleanup/execute", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
   quarantineList: () => api<{ entries: unknown[] }>("/api/quarantine"),
   restore: (id: string) =>

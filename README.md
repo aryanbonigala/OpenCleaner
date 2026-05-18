@@ -7,6 +7,41 @@ This repository contains:
 - `backend/`: Python **FastAPI** service, **SQLite** storage, modular scanners, deterministic rules engine, local ML-assisted ranking, quarantine + audit logging.
 - `frontend/`: **Tauri + React + Vite** UI (dark dashboard, sortable inventory, charts, Explain This, Safety Center, mode switching).
 
+## v0.4.1 (Frontend UX Alpha)
+
+**Version tag:** `v0.4.1_FrontendUXAlpha`
+
+A non-developer can complete the main **local** flow:
+
+1. Open the app (Vite dev or Tauri).
+2. **Run scan** from the dashboard.
+3. **Review findings** with plain-English explanations and risk badges.
+4. **Preview cleanup** for selected safe items (preview is required before execute).
+5. **Execute quarantine cleanup** in **Assisted** mode with explicit confirmation.
+6. Read the **cleanup summary** (estimated vs confirmed size, skipped/blocked/failed).
+7. **Restore from quarantine** if needed.
+
+**New API endpoints**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/health` | App version, API version, `scan_in_progress` |
+| `GET` | `/api/scan/status` | Whether a scan is running |
+| `POST` | `/api/cleanup/preview` | Dry-run; returns `preview_id` |
+| `POST` | `/api/cleanup/execute` | Quarantine selected items (requires preview) |
+
+**UI components** live under `frontend/src/components/` (`Dashboard`, `ScanResults`, `CleanupReview`, `QuarantineManager`, etc.). Selection helpers: `frontend/src/selection.ts`.
+
+**Current limitations**
+
+- File quarantine only; processes/services are report-only.
+- Preview must match execute item ids exactly; preview expires after ~1 hour.
+- Unknown / medium-risk items need explicit opt-in (checkbox) before preview.
+- Permanent Recycle Bin emptying needs a separate confirmation flag on execute.
+- No cloud APIs, telemetry, registry cleaning, or auto service disable in this release.
+
+See [CHANGELOG.md](CHANGELOG.md) for details.
+
 ## v0.4 (canonical scan model + reasoning pipeline)
 
 - **Canonical `ScanItem`** (`backend/app/models/scan_item.py`) — unified typed schema for all inventory rows (metrics, intelligence, bucket, action flags, provenance).
@@ -116,10 +151,12 @@ source .venv/bin/activate
 PYTHONPATH=. pytest
 ```
 
-Frontend typecheck + production bundle:
+Frontend typecheck, unit tests, and production bundle:
 
 ```bash
 cd frontend
+npm install
+npm run test
 npm run build
 ```
 

@@ -67,6 +67,7 @@ class ScanSummary(BaseModel):
     buckets: dict[str, int]
     disk_usage_sample: dict[str, Any] | None = None
     generated_at: str | None = None
+    scanner_warnings: list[str] = Field(default_factory=list)
 
 
 class ScanResult(BaseModel):
@@ -77,12 +78,28 @@ class ScanResult(BaseModel):
 class CleanupPreviewRequest(BaseModel):
     item_ids: list[str]
     confirm_medium_risk: bool = False
+    include_recycle_bin: bool = False
+
+
+class CleanupPreviewResponse(BaseModel):
+    preview_id: str
+    scan_id: str
+    estimated_bytes: int
+    estimated_mb: float
+    counts: dict[str, int]
+    items: list[dict[str, Any]]
+    include_recycle_bin: bool
+    recycle_bin_note: str | None = None
+    confirm_medium_risk: bool
+    disclaimer: str
 
 
 class CleanupExecuteRequest(BaseModel):
+    preview_id: str
     item_ids: list[str]
     confirm_medium_risk: bool = False
     include_recycle_bin: bool = False
+    confirm_permanent_delete: bool = False
 
 
 class QuarantineEntry(BaseModel):

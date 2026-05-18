@@ -29,6 +29,7 @@ from app.scanners.services import scan_services
 from app.scanners.startup import scan_startup
 from app.scanners.tasks import scan_scheduled_tasks
 from app.services.feedback_service import feedback_nudge_for
+from app.services import scan_state
 
 
 async def _load_lists() -> tuple[list[str], list[str]]:
@@ -53,31 +54,35 @@ def _env_use_mock() -> bool:
     return os.environ.get("OPENCLEANER_USE_MOCK", "").lower() in ("1", "true", "yes")
 
 
-def _collect_raw_scored() -> list[ScoredItem]:
+def _collect_raw_scored() -> tuple[list[ScoredItem], list[str]]:
     raw_items: list[ScoredItem] = []
+    warnings: list[str] = []
+    scanners = (
+        ("processes", scan_processes),
+        ("services", scan_services),
+        ("startup", scan_startup),
+        ("scheduled_tasks", scan_scheduled_tasks),
+        ("temp_and_cache", scan_temp_and_cache),
+        ("downloads", scan_downloads),
+        ("desktop_clutter", scan_desktop_clutter),
+        ("browser_profiles", scan_browser_profiles),
+        ("duplicates", scan_duplicates_limited),
+        ("large_unused", scan_large_unused_candidates),
+        ("orphans", scan_orphans_lightweight),
+    )
     if _env_use_mock():
         raw_items.extend(raw_to_scored(x) for x in load_mock_scan())
     else:
-        for fn in (
-            scan_processes,
-            scan_services,
-            scan_startup,
-            scan_scheduled_tasks,
-            scan_temp_and_cache,
-            scan_downloads,
-            scan_desktop_clutter,
-            scan_browser_profiles,
-            scan_duplicates_limited,
-            scan_large_unused_candidates,
-            scan_orphans_lightweight,
-        ):
+        for label, fn in scanners:
             try:
                 raw_items.extend(fn())
-            except Exception:
-                pass
+            except Exception as exc:
+                warnings.append(f"Scanner “{label}” did not complete: {exc}")
     if not raw_items and not _env_use_mock():
         raw_items.extend(raw_to_scored(x) for x in load_mock_scan())
-    return raw_items
+        if not warnings:
+            warnings.append("Live scanners returned no items; loaded sample dataset instead.")
+    return raw_items, warnings
 
 
 async def _finalize_items(raw_items: list[ScoredItem], allow: list[str], block: list[str]) -> list[ScanItem]:
@@ -103,11 +108,22 @@ async def _finalize_items(raw_items: list[ScoredItem], allow: list[str], block: 
 
 
 async def run_full_scan(mode: PermissionMode) -> ScanResult:
+    if scan_state.is_scan_in_progress():
+        raise RuntimeError("A scan is already in progress. Wait for it to finish before starting another.")
+    scan_state.begin_scan()
+    try:
+        return await _run_full_scan_inner(mode)
+    finally:
+        scan_state.end_scan()
+
+
+async def _run_full_scan_inner(mode: PermissionMode) -> ScanResult:
     allow, block = await _load_lists()
     scan_id = str(uuid.uuid4())
     platform = os_friendly_name()
 
-    finalized = await _finalize_items(_collect_raw_scored(), allow, block)
+    raw, warnings = _collect_raw_scored()
+    finalized = await _finalize_items(raw, allow, block)
 
     buckets: dict[str, int] = {}
     for it in finalized:
@@ -122,6 +138,7 @@ async def run_full_scan(mode: PermissionMode) -> ScanResult:
         buckets=buckets,
         disk_usage_sample=_disk_snapshot(),
         generated_at=utc_now_iso(),
+        scanner_warnings=warnings,
     )
 
     await _persist_scan(scan_id, platform, mode.value, finalized, summary)
