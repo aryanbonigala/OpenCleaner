@@ -11,8 +11,15 @@ from pydantic import BaseModel
 from starlette.responses import PlainTextResponse
 
 from app.actions.cleanup import assisted_cleanup
-from app.actions.performance import active_session, start_session, stop_session
-from app.actions.quarantine import list_quarantine, restore_quarantine
+from app.actions.performance import (
+    active_session,
+    count_running_matches_hard_protected,
+    planned_suspend_actions,
+    session_snapshot,
+    start_session,
+    stop_session,
+)
+from app.actions.quarantine import list_quarantine, quarantine_storage_summary, restore_quarantine
 from app.config import get_settings
 from app.db import append_audit, db_conn, get_setting, init_db, set_setting
 from app.engine.explain import explain_item
@@ -23,10 +30,12 @@ from app.models.schemas import (
     FeedbackRequest,
     ModeSetRequest,
     PermissionMode,
+    PerformancePreviewRequest,
     PerformanceSessionRequest,
     ScanResult,
     ScoredItem,
 )
+from app.engine.protected_registry import protected_pattern_count
 from app.services.feedback_service import record_feedback
 from app.services.scan_service import latest_scan_from_db, run_full_scan
 
@@ -37,7 +46,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="OpenCleaner AI", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="OpenCleaner AI", version="0.2.0", lifespan=lifespan)
 
 settings = get_settings()
 app.add_middleware(
@@ -156,12 +165,63 @@ async def quarantine_restore(body: RestoreBody) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/safety/summary")
+async def safety_summary() -> dict[str, Any]:
+    mode_raw = await get_setting("permission_mode", PermissionMode.read_only.value)
+    q = await quarantine_storage_summary()
+    rollback = session_snapshot()
+    protected_running = 0
+    try:
+        protected_running = count_running_matches_hard_protected()
+    except Exception:
+        protected_running = 0
+    last_actions: list[dict[str, Any]] = []
+    async with await db_conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT action, mode, detail_json, success, error, created_at
+            FROM audit_log
+            WHERE action IN ('assisted_cleanup', 'performance_start', 'performance_stop', 'cleanup_error', 'quarantine_restore')
+            ORDER BY id DESC LIMIT 12
+            """
+        )
+        rows = await cur.fetchall()
+        last_actions = [dict(r) for r in rows]
+
+    return {
+        "permission_mode": str(mode_raw),
+        "quarantine": q,
+        "performance_session": rollback,
+        "protected_registry_rules": protected_pattern_count(),
+        "running_processes_matching_protection": protected_running,
+        "recent_actions": last_actions,
+        "telemetry": await get_setting("telemetry", "false"),
+    }
+
+
+@app.post("/api/performance/preview")
+async def perf_preview(req: PerformancePreviewRequest) -> dict[str, Any]:
+    mode_raw = await get_setting("permission_mode", PermissionMode.read_only.value)
+    if PermissionMode(str(mode_raw)) != PermissionMode.performance:
+        raise HTTPException(status_code=403, detail="performance mode required for preview")
+    return planned_suspend_actions(req.preset, req.target_process_names)
+
+
 @app.post("/api/performance/start")
 async def perf_start(req: PerformanceSessionRequest) -> dict[str, Any]:
     mode_raw = await get_setting("permission_mode", PermissionMode.read_only.value)
     if PermissionMode(str(mode_raw)) != PermissionMode.performance:
         raise HTTPException(status_code=403, detail="performance mode required")
-    sess = start_session(req.preset, req.target_process_names)
+    if not req.confirm_apply:
+        raise HTTPException(
+            status_code=400,
+            detail="Preview required: call POST /api/performance/preview first, then start with confirm_apply=true.",
+        )
+    try:
+        sess = start_session(req.preset, req.target_process_names, confirm_apply=req.confirm_apply)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     await append_audit(
         "performance_start",
         PermissionMode.performance.value,

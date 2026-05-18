@@ -88,3 +88,32 @@ async def list_quarantine() -> list[dict]:
         )
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+
+async def quarantine_storage_summary() -> dict[str, object]:
+    """DB-backed quarantine stats for Safety Center."""
+    async with await db_conn() as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT
+              COUNT(*) as n,
+              SUM(CASE WHEN restored = 0 THEN 1 ELSE 0 END) as active_n,
+              SUM(CASE WHEN restored = 0 THEN COALESCE(size_bytes, 0) ELSE 0 END) as active_bytes
+            FROM quarantine_entries
+            """
+        )
+        row = await cur.fetchone()
+    n = int(row["n"] or 0) if row else 0
+    active_n = int(row["active_n"] or 0) if row else 0
+    active_bytes = int(row["active_bytes"] or 0) if row else 0
+    settings = get_settings()
+    dir_exists = settings.quarantine_dir.exists()
+    return {
+        "entries_total": n,
+        "entries_active": active_n,
+        "active_bytes": active_bytes,
+        "active_mb": round(active_bytes / (1024 * 1024), 3),
+        "quarantine_dir": str(settings.quarantine_dir),
+        "quarantine_dir_present": dir_exists,
+    }

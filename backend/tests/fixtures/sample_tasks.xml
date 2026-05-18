@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Tasks>
+  <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+    <RegistrationInfo>
+      <Author>DEMO\\tester</Author>
+      <URI>\\OpenCleaner\\OpenCleanerDemoTask</URI>
+    </RegistrationInfo>
+    <Triggers>
+      <LogonTrigger>
+        <Enabled>true</Enabled>
+      </LogonTrigger>
+    </Triggers>
+    <Settings>
+      <Enabled>true</Enabled>
+    </Settings>
+    <Actions Context="Author">
+      <Exec>
+        <Command>C:\\Windows\\System32\\notepad.exe</Command>
+        <Arguments></Arguments>
+      </Exec>
+    </Actions>
+  </Task>
+  <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+    <RegistrationInfo>
+      <Author>Microsoft Corporation</Author>
+      <URI>\\Microsoft\\Windows\\Maintenance\\DummyDisabled</URI>
+    </RegistrationInfo>
+    <Triggers>
+      <CalendarTrigger/>
+    </Triggers>
+    <Settings>
+      <Enabled>false</Enabled>
+    </Settings>
+    <Actions Context="Author">
+      <Exec>
+        <Command>C:\\Windows\\System32\\cmd.exe</Command>
+        <Arguments>/c echo off</Arguments>
+      </Exec>
+    </Actions>
+  </Task>
+</Tasks>

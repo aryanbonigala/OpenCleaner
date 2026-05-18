@@ -109,9 +109,15 @@ class QuarantineEntry(BaseModel):
     created_at: str
 
 
+class PerformancePreviewRequest(BaseModel):
+    preset: PerformancePreset
+    target_process_names: list[str] = Field(default_factory=list)
+
+
 class PerformanceSessionRequest(BaseModel):
     preset: PerformancePreset
     target_process_names: list[str] = Field(default_factory=list)
+    confirm_apply: bool = False
 
 
 class FeedbackRequest(BaseModel):

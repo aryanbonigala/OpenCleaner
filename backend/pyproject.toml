@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opencleaner-ai-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "OpenCleaner AI — local-first desktop optimization backend"
 readme = "README.md"
 requires-python = ">=3.10"

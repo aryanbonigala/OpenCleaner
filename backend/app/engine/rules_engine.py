@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.engine.protected_registry import is_hard_protected_process
 from app.models.schemas import ItemType, RiskBucket, ScoredItem
 
 
@@ -11,16 +12,6 @@ class RulesResult:
     bucket: RiskBucket
     confidence: float
     reasoning: str
-
-
-CRITICAL_PROCESS_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"^(csrss|smss|wininit|services|lsass|svchost|system|secure system)\.exe$", re.I),
-    re.compile(r"^(winlogon|fontdrvhost|dwm|audiodg|sihost|taskhostw|regsvr32)\.exe$", re.I),
-    re.compile(r"(?i)antimalware|defender|msmpeng|securityhealthservice"),
-    re.compile(r"(?i)easyanti|battleye|vac|nprotect|xigncode"),
-    re.compile(r"(?i)nvd?display|nvcontainer|nvidia|amdow|atieclxx|radeon"),
-    re.compile(r"(?i)rtkaud|realtek|windows\.old"),
-)
 
 
 CRITICAL_SERVICE_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -43,8 +34,7 @@ def _norm_path(p: str | None) -> str:
 
 
 def is_critical_process(name: str) -> bool:
-    base = name.split("\\")[-1].split("/")[-1]
-    return any(p.search(base) for p in CRITICAL_PROCESS_PATTERNS)
+    return is_hard_protected_process(name)
 
 
 def is_critical_service(name: str) -> bool:

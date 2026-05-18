@@ -6,6 +6,8 @@ from pathlib import Path
 
 from app.models.schemas import ItemType, RiskBucket, ScoredItem
 from app.platform.detect import OSFamily, detect_os
+from app.scanners import scan_limits as L
+from app.utils.fs import bounded_walk, walk_deadline
 
 
 def _win_startup_registry() -> list[ScoredItem]:
@@ -63,23 +65,30 @@ def _win_startup_folders() -> list[ScoredItem]:
     for folder in candidates:
         if not folder.exists():
             continue
-        try:
-            for lnk in folder.iterdir():
-                items.append(
-                    ScoredItem(
-                        id=f"startup-folder-{lnk.name}",
-                        category="startup",
-                        item_type=ItemType.startup_entry,
-                        name=lnk.name,
-                        path=str(lnk),
-                        detail={"location": "StartupFolder", "startup": True},
-                        rule_bucket=RiskBucket.unknown,
-                        confidence=0.55,
-                        reasoning="Shell Startup folder shortcut or script.",
-                    )
+
+        def on_file(p: Path) -> None:
+            items.append(
+                ScoredItem(
+                    id=f"startup-folder-{p.name}",
+                    category="startup",
+                    item_type=ItemType.startup_entry,
+                    name=p.name,
+                    path=str(p),
+                    detail={"location": "StartupFolder", "startup": True},
+                    rule_bucket=RiskBucket.unknown,
+                    confidence=0.55,
+                    reasoning="Shell Startup folder shortcut or script.",
                 )
-        except OSError:
-            continue
+            )
+
+        bounded_walk(
+            folder,
+            max_files=L.STARTUP_FOLDER_MAX_FILES,
+            max_depth=L.STARTUP_FOLDER_MAX_DEPTH,
+            max_total_bytes=L.STARTUP_FOLDER_MAX_BYTES,
+            deadline=walk_deadline(L.STARTUP_FOLDER_TIMEOUT_S),
+            on_file=on_file,
+        )
     return items
 
 
@@ -97,23 +106,31 @@ def _darwin_launch_agents() -> list[ScoredItem]:
     for d in dirs:
         if not d.exists():
             continue
-        try:
-            for plist in d.glob("*.plist"):
-                items.append(
-                    ScoredItem(
-                        id=f"launchd-{plist.stem}",
-                        category="startup",
-                        item_type=ItemType.startup_entry,
-                        name=plist.stem,
-                        path=str(plist),
-                        detail={"location": "launchd", "startup": True, "platform": "darwin"},
-                        rule_bucket=RiskBucket.unknown,
-                        confidence=0.5,
-                        reasoning="macOS launchd plist — review Label/ProgramArguments before changes.",
-                    )
+        def on_file(p: Path) -> None:
+            if p.suffix.lower() != ".plist":
+                return
+            items.append(
+                ScoredItem(
+                    id=f"launchd-{p.stem}",
+                    category="startup",
+                    item_type=ItemType.startup_entry,
+                    name=p.stem,
+                    path=str(p),
+                    detail={"location": "launchd", "startup": True, "platform": "darwin"},
+                    rule_bucket=RiskBucket.unknown,
+                    confidence=0.5,
+                    reasoning="macOS launchd plist — review Label/ProgramArguments before changes.",
                 )
-        except OSError:
-            continue
+            )
+
+        bounded_walk(
+            d,
+            max_files=L.STARTUP_FOLDER_MAX_FILES,
+            max_depth=2,
+            max_total_bytes=L.STARTUP_FOLDER_MAX_BYTES,
+            deadline=walk_deadline(L.STARTUP_FOLDER_TIMEOUT_S),
+            on_file=on_file,
+        )
     return items
 
 

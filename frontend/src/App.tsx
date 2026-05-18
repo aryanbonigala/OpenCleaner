@@ -43,6 +43,11 @@ export default function App() {
   const [confirmMedium, setConfirmMedium] = useState(false);
   const [recycleBin, setRecycleBin] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+  const [safety, setSafety] = useState<Awaited<ReturnType<typeof client.safetySummary>> | null>(null);
+  const [perfPreview, setPerfPreview] = useState<Record<string, unknown> | null>(null);
+  const [perfPreset, setPerfPreset] = useState<string | null>(null);
+  const [perfTargets, setPerfTargets] = useState("");
+  const [perfConfirm, setPerfConfirm] = useState(false);
 
   useEffect(() => {
     client
@@ -57,6 +62,21 @@ export default function App() {
       .then((s) => setScan(s))
       .catch(() => undefined);
   }, []);
+
+  async function loadSafety() {
+    try {
+      const s = await client.safetySummary();
+      setSafety(s);
+    } catch {
+      setSafety(null);
+    }
+  }
+
+  useEffect(() => {
+    void loadSafety();
+    const t = window.setInterval(() => void loadSafety(), 8000);
+    return () => window.clearInterval(t);
+  }, [mode, scan?.summary.scan_id]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -121,6 +141,7 @@ export default function App() {
     try {
       const s = await client.scan();
       setScan(s);
+      void loadSafety();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -156,6 +177,7 @@ export default function App() {
       await client.cleanup(ids, confirmMedium, recycleBin);
       const s = await client.latest();
       setScan(s);
+      void loadSafety();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -174,6 +196,7 @@ export default function App() {
       } else {
         await client.restore(entries[0].id);
       }
+      void loadSafety();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -181,11 +204,43 @@ export default function App() {
     }
   }
 
-  async function startPerf(preset: string) {
+  async function runPerfPreview(preset: string) {
+    setBusy(true);
+    setError(null);
+    setPerfConfirm(false);
+    try {
+      const targets = perfTargets
+        .split(/[\s,]+/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      const prev = await client.perfPreview(preset, targets);
+      setPerfPreview(prev);
+      setPerfPreset(preset);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyPerf() {
+    if (!perfPreset || !perfPreview) {
+      setError("Run a preview for a preset first.");
+      return;
+    }
+    if (!perfConfirm) {
+      setError("Check the box confirming you reviewed the preview and accept suspending those processes.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await client.perfStart(preset, []);
+      const targets = perfTargets
+        .split(/[\s,]+/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      await client.perfStart(perfPreset, targets, true);
+      void loadSafety();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -198,6 +253,10 @@ export default function App() {
     setError(null);
     try {
       await client.perfStop();
+      void loadSafety();
+      setPerfPreview(null);
+      setPerfPreset(null);
+      setPerfConfirm(false);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -312,6 +371,11 @@ export default function App() {
           <div className="actions">
             {mode === "assisted" ? (
               <>
+                <div className="warn-box" style={{ flex: "1 1 100%" }}>
+                  <strong>Assisted cleanup</strong> moves selected files to a local quarantine folder first (not immediate
+                  deletion). Core system paths are blocked. Medium-risk items require the checkbox below. Machine learning
+                  does not delete anything; only you confirm actions.
+                </div>
                 <label className="muted">
                   <input
                     type="checkbox"
@@ -339,19 +403,66 @@ export default function App() {
 
             {mode === "performance" ? (
               <>
-                <button disabled={busy} onClick={() => startPerf("max_fps")}>
-                  Maximum FPS preset
+                <div className="warn-box" style={{ flex: "1 1 100%" }}>
+                  <strong>Performance mode</strong> can <em>suspend</em> eligible background processes (never browsers or
+                  shells unless you list them explicitly below). You must <strong>Preview</strong> first, then apply with
+                  confirmation. Stop session resumes suspended PIDs. This is not a substitute for closing games properly,
+                  and some power profile steps may need administrator rights on Windows.
+                </div>
+                <label className="muted" style={{ flex: "1 1 100%" }}>
+                  Extra process basenames (optional, comma-separated), e.g. <code>chrome.exe</code>,{" "}
+                  <code>spotify.exe</code>
+                  <input
+                    type="text"
+                    value={perfTargets}
+                    onChange={(e) => setPerfTargets(e.target.value)}
+                    placeholder="chrome.exe, Spotify.exe"
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      marginTop: 6,
+                      padding: 8,
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      background: "var(--panel)",
+                      color: "var(--text)",
+                    }}
+                  />
+                </label>
+                <button disabled={busy} onClick={() => runPerfPreview("max_fps")}>
+                  Preview: Max FPS
                 </button>
-                <button disabled={busy} onClick={() => startPerf("min_ram")}>
-                  Minimum RAM preset
+                <button disabled={busy} onClick={() => runPerfPreview("min_ram")}>
+                  Preview: Min RAM
                 </button>
-                <button disabled={busy} onClick={() => startPerf("streaming")}>
-                  Streaming preset
+                <button disabled={busy} onClick={() => runPerfPreview("streaming")}>
+                  Preview: Streaming
                 </button>
-                <button disabled={busy} onClick={() => startPerf("battery_saver")}>
-                  Battery saver preset
+                <button disabled={busy} onClick={() => runPerfPreview("battery_saver")}>
+                  Preview: Battery saver
                 </button>
-                <button className="danger" disabled={busy} onClick={stopPerf}>
+                {perfPreview ? (
+                  <div className="pre-small" style={{ flex: "1 1 100%" }}>
+                    {String(perfPreview["disclaimer"] ?? "")}
+                    {"\n"}
+                    would_suspend: {String(perfPreview["would_suspend_count"] ?? "?")}, protected_skipped:{" "}
+                    {String(perfPreview["skipped_protected_count"] ?? "?")}
+                    {"\n"}
+                    {JSON.stringify(perfPreview["would_suspend"], null, 0).slice(0, 2000)}
+                  </div>
+                ) : null}
+                <label className="muted">
+                  <input
+                    type="checkbox"
+                    checked={perfConfirm}
+                    onChange={(e) => setPerfConfirm(e.target.checked)}
+                  />{" "}
+                  I reviewed the preview and accept applying suspends for the listed processes.
+                </label>
+                <button className="danger" disabled={busy || !perfPreview} onClick={() => void applyPerf()}>
+                  Apply previewed plan
+                </button>
+                <button className="danger" disabled={busy} onClick={() => void stopPerf()}>
                   Stop / rollback session
                 </button>
               </>
@@ -359,11 +470,57 @@ export default function App() {
           </div>
           <div className="footer-note">
             Double-click a row (or click the name) for <strong>Explain This</strong>. Sort columns by clicking headers.
-            Cleanup never mutates in read-only mode, and performance mode avoids permanent deletion.
+            Read-only mode never mutates disk or processes. Assisted cleanup uses quarantine. Performance mode requires
+            preview plus explicit confirmation before suspend.
           </div>
         </section>
 
         <aside className="side">
+          <section className="panel metrics">
+            <div className="panel-header">
+              <h2>Safety Center</h2>
+              <span className="muted">local-only</span>
+            </div>
+            <div className="safety-grid" style={{ padding: "10px 12px" }}>
+              {safety ? (
+                <>
+                  <dl>
+                    <dt>Mode</dt>
+                    <dd>{safety.permission_mode}</dd>
+                    <dt>Quarantine (active)</dt>
+                    <dd>
+                      {String((safety.quarantine as { entries_active?: number }).entries_active ?? "—")} entries,{" "}
+                      {String((safety.quarantine as { active_mb?: number }).active_mb ?? "—")} MB tracked
+                    </dd>
+                    <dt>Rollback session</dt>
+                    <dd>
+                      {safety.performance_session && (safety.performance_session as { active?: boolean }).active
+                        ? `active (${String((safety.performance_session as { suspended_count?: number }).suspended_count ?? "?")} suspended)`
+                        : "none"}
+                    </dd>
+                    <dt>Protected patterns (registry)</dt>
+                    <dd>{safety.protected_registry_rules}</dd>
+                    <dt>Running proc. matching guards</dt>
+                    <dd>{safety.running_processes_matching_protection}</dd>
+                    <dt>Telemetry default</dt>
+                    <dd>{safety.telemetry}</dd>
+                  </dl>
+                  <div className="muted" style={{ fontSize: 11 }}>
+                    Recent actions (audit log):{" "}
+                    {(safety.recent_actions as object[]).length
+                      ? (safety.recent_actions as { action: string }[])
+                          .slice(0, 4)
+                          .map((a) => a.action)
+                          .join(", ")
+                      : "none"}
+                  </div>
+                </>
+              ) : (
+                <span className="muted">Loading safety summary…</span>
+              )}
+            </div>
+          </section>
+
           <section className="panel metrics">
             <div className="panel-header">
               <h2>Resource snapshot</h2>

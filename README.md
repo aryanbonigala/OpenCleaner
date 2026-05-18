@@ -5,7 +5,15 @@ OpenCleaner AI is an open-source, **local-first** desktop optimization and clean
 This repository contains:
 
 - `backend/`: Python **FastAPI** service, **SQLite** storage, modular scanners, deterministic rules engine, local ML-assisted ranking, quarantine + audit logging.
-- `frontend/`: **Tauri + React + Vite** UI (dark dashboard, sortable inventory, charts, Explain This, mode switching).
+- `frontend/`: **Tauri + React + Vite** UI (dark dashboard, sortable inventory, charts, Explain This, Safety Center, mode switching).
+
+## v0.2 (safety and packaging hardening)
+
+- **Filesystem scans**: directory walks use **`bounded_walk`** (`backend/app/utils/fs.py`) with caps on files, depth, bytes inspected, deadlines, symlink loop handling, and capped duplicate hashing (`backend/app/scanners/scan_limits.py`). Startup folders and browser profile sizing use the same walker.
+- **Windows tasks**: prefer **`schtasks /query /xml`** with namespace-tolerant parsing; **LIST** fallback (`backend/app/scanners/tasks.py`). Fixture: `backend/tests/fixtures/sample_tasks.xml`.
+- **Performance mode**: central **`protected_registry`** for suspend decisions; browsers/shells only if **explicitly listed**; **`POST /api/performance/preview`** before **`POST /api/performance/start`** with **`confirm_apply: true`**.
+- **Safety Center API**: **`GET /api/safety/summary`** (quarantine stats, performance session snapshot, protected-pattern counts, recent audit actions).
+- **Packaging**: see **`docs/PACKAGING.md`** and **`scripts/bundle_backend_stub.sh`** (PyInstaller outline).
 
 ## Quick start (development)
 
@@ -56,19 +64,21 @@ export VITE_API_BASE="http://127.0.0.1:8742"
 
 1. **Read-only**: scanning, reporting, explanations. No destructive operations.
 2. **Assisted cleanup**: file moves into **quarantine** first; rollback supported; medium+ risk requires explicit confirmation flags.
-3. **Performance / gaming**: **no** file deletion; temporary suspension/optimization patterns with **stop/rollback**.
+3. **Performance / gaming**: **no** file deletion; **preview-first** process suspension with explicit **confirm_apply**; **stop/rollback** resumes PIDs.
 
 ## Architecture (high level)
 
 Layers are intentionally separated:
 
 - **Scanners** (`backend/app/scanners/`): gather facts (processes, services, startup, tasks, filesystem, browser trees).
-- **Rules engine** (`backend/app/engine/rules_engine.py`): deterministic safety and classification buckets.
+- **Rules engine** (`backend/app/engine/rules_engine.py`): deterministic safety and classification buckets (process criticality delegates to **`protected_registry`**).
 - **ML ranker** (`backend/app/engine/ml_ranker.py`): local, feature-based ranking and explain-supporting scores. Optional **scikit-learn** calibrator trained on synthetic data mirroring the heuristic mapping; **never** authorizes deletion.
 - **Actions** (`backend/app/actions/`): quarantine moves, assisted cleanup orchestration, performance sessions.
 - **Persistence** (`backend/sql/schema.sql`): scans, items, audit log, quarantine metadata, user feedback for local learning nudges.
 
 Windows-specific probes (Services, scheduled tasks, registry Run keys) activate when `sys.platform == "win32"`. Non-Windows development uses live `psutil` data where possible plus `backend/data/sample_scan.json` fallbacks.
+
+**Desktop packaging** (sidecar backend + Tauri): see `docs/PACKAGING.md`.
 
 ## Security notes
 
@@ -104,10 +114,10 @@ export OPENCLEANER_USE_MOCK=1
 
 ## Roadmap (short)
 
-- Deeper Windows scheduled task XML parsing and integrity-level aware scanning.
-- macOS/Linux parity: LaunchAgents parsing, `launchctl`, Linux systemd user units, package-manager orphan hints.
+- Integrity-level-aware Windows scanning and richer task trigger parsing.
+- macOS/Linux parity: `launchctl`, Linux systemd user units, package-manager orphan hints.
 - Optional **NVML** GPU process attribution (explicit dependency) behind a feature flag.
-- Signed auto-updates for the desktop bundle and reproducible builds.
+- Automate **PyInstaller** / CI-produced sidecar in `scripts/` (beyond the current stub).
 
 ## UI mock
 

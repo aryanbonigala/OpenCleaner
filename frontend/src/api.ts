@@ -113,10 +113,15 @@ export const client = {
       method: "POST",
       body: JSON.stringify({ id }),
     }),
-  perfStart: (preset: string, target_process_names: string[]) =>
-    api<{ suspended_pids: number[]; preset: string }>("/api/performance/start", {
+  perfPreview: (preset: string, target_process_names: string[]) =>
+    api<Record<string, unknown>>("/api/performance/preview", {
       method: "POST",
       body: JSON.stringify({ preset, target_process_names }),
+    }),
+  perfStart: (preset: string, target_process_names: string[], confirm_apply: boolean) =>
+    api<{ suspended_pids: number[]; preset: string }>("/api/performance/start", {
+      method: "POST",
+      body: JSON.stringify({ preset, target_process_names, confirm_apply }),
     }),
   perfStop: () =>
     api<{ resumed: number[] }>("/api/performance/stop", {
@@ -127,5 +132,15 @@ export const client = {
       method: "POST",
       body: JSON.stringify({ item, decision, weight: 1.0 }),
     }),
+  safetySummary: () =>
+    api<{
+      permission_mode: string;
+      quarantine: Record<string, unknown>;
+      performance_session: Record<string, unknown> | null;
+      protected_registry_rules: number;
+      running_processes_matching_protection: number;
+      recent_actions: unknown[];
+      telemetry: string;
+    }>("/api/safety/summary"),
   exportReportUrl: (fmt: "json" | "md") => `${API_BASE}/api/export/report?fmt=${encodeURIComponent(fmt)}`,
 };

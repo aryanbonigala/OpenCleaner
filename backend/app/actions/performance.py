@@ -6,7 +6,11 @@ from dataclasses import dataclass
 
 import psutil
 
-from app.engine.rules_engine import is_critical_process
+from app.engine.protected_registry import (
+    DEFAULT_SOFT_SUSPEND_BASE_NAMES,
+    is_hard_protected_process,
+    suspend_allowed_by_policy,
+)
 from app.models.schemas import PerformancePreset
 
 
@@ -19,40 +23,127 @@ class PerformanceSession:
 
 _SESSION: PerformanceSession | None = None
 
-_DEFAULT_SOFT_SUSPEND = {
-    "onedrive.exe",
-    "dropbox.exe",
-    "googledrivefs.exe",
-    "creative cloud.exe",
-    "adobeipcbroker.exe",
-    "epicwebhelper.exe",
-    "steamwebhelper.exe",
-}
+
+def _norm_explicit(targets: list[str]) -> frozenset[str]:
+    out: set[str] = set()
+    for t in targets:
+        b = (t or "").replace("/", "\\").split("\\")[-1].strip().lower()
+        if b:
+            out.add(b)
+    return frozenset(out)
 
 
-def start_session(preset: PerformancePreset, target_procs: list[str]) -> PerformanceSession:
+def planned_suspend_actions(
+    preset: PerformancePreset,
+    target_process_names: list[str],
+) -> dict[str, object]:
+    """
+    Preview-only: which processes would be suspended and why others are skipped.
+    Does not mutate system state.
+    """
+    explicit = _norm_explicit(target_process_names)
+    would_suspend: list[dict[str, object]] = []
+    skipped_protected: list[dict[str, str]] = []
+    skipped_policy: list[dict[str, str]] = []
+
+    for p in psutil.process_iter(["pid", "name"]):
+        try:
+            pid = int(p.info.get("pid") or 0)
+            name = str(p.info.get("name") or "")
+            if not pid or not name:
+                continue
+            base = name.replace("/", "\\").split("\\")[-1].lower()
+            ok, reason = suspend_allowed_by_policy(name, explicit_target_basenames=explicit)
+            if not ok:
+                if is_hard_protected_process(name) or "browser" in reason or "shell" in reason:
+                    skipped_protected.append({"pid": str(pid), "name": name, "reason": reason})
+                else:
+                    skipped_policy.append({"pid": str(pid), "name": name, "reason": reason})
+                continue
+
+            if explicit:
+                if base not in explicit:
+                    continue
+            else:
+                if base not in DEFAULT_SOFT_SUSPEND_BASE_NAMES:
+                    continue
+
+            would_suspend.append(
+                {
+                    "pid": pid,
+                    "name": name,
+                    "reason": "matches performance policy and preset target list",
+                }
+            )
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+
+    power_note = (
+        "Preset may attempt a local power profile switch on Windows (optional; may require elevation)."
+    )
+
+    return {
+        "preset": preset.value,
+        "explicit_targets": sorted(explicit),
+        "would_suspend": would_suspend,
+        "would_suspend_count": len(would_suspend),
+        "skipped_protected_sample": skipped_protected[:40],
+        "skipped_protected_count": len(skipped_protected),
+        "skipped_policy_sample": skipped_policy[:20],
+        "disclaimer": (
+            "Preview only. No process was suspended. Review the list, then call /api/performance/start "
+            "with confirm_apply=true if you accept the impact."
+        ),
+        "power_note": power_note,
+    }
+
+
+def count_running_matches_hard_protected() -> int:
+    n = 0
+    for p in psutil.process_iter(["name"]):
+        try:
+            name = str(p.info.get("name") or "")
+            if name and is_hard_protected_process(name):
+                n += 1
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+    return n
+
+
+def start_session(
+    preset: PerformancePreset,
+    target_procs: list[str],
+    *,
+    confirm_apply: bool,
+) -> PerformanceSession:
     global _SESSION
+    if not confirm_apply:
+        raise ValueError("Performance session requires confirm_apply=true after reviewing preview.")
+
     if _SESSION is not None:
         stop_session()
 
+    explicit = _norm_explicit(target_procs)
     suspended: list[int] = []
     affinities: dict[int, list[int]] = {}
-
-    explicit = {t.lower() for t in target_procs if t}
-    if explicit:
-        suspend_filter = explicit
-    else:
-        suspend_filter = set(_DEFAULT_SOFT_SUSPEND)
 
     for p in psutil.process_iter(["pid", "name"]):
         try:
             name = str(p.info.get("name") or "")
             pid = int(p.info.get("pid") or 0)
-            if not pid or is_critical_process(name):
+            if not pid:
                 continue
-            base = name.split("\\")[-1].split("/")[-1].lower()
-            if base not in suspend_filter:
+            ok, _reason = suspend_allowed_by_policy(name, explicit_target_basenames=explicit)
+            if not ok:
                 continue
+            base = name.replace("/", "\\").split("\\")[-1].lower()
+            if explicit:
+                if base not in explicit:
+                    continue
+            else:
+                if base not in DEFAULT_SOFT_SUSPEND_BASE_NAMES:
+                    continue
+
             if preset == PerformancePreset.battery_saver:
                 try:
                     if hasattr(p, "nice"):
@@ -61,7 +152,6 @@ def start_session(preset: PerformancePreset, target_procs: list[str]) -> Perform
                     pass
                 continue
 
-            # Suspend non-critical background where safe
             try:
                 status = p.status()
                 if status != psutil.STATUS_STOPPED:
@@ -98,6 +188,17 @@ def stop_session() -> None:
 
 def active_session() -> PerformanceSession | None:
     return _SESSION
+
+
+def session_snapshot() -> dict[str, object] | None:
+    if _SESSION is None:
+        return None
+    return {
+        "active": True,
+        "preset": _SESSION.preset.value,
+        "suspended_pids": list(_SESSION.suspended_pids),
+        "suspended_count": len(_SESSION.suspended_pids),
+    }
 
 
 def _try_powercfg_high_performance() -> None:
