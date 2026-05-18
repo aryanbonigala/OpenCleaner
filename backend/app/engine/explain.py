@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from app.models.schemas import ExplainRequest, ExplainResponse, ItemType
 from app.engine.rules_engine import is_critical_process, is_critical_service
+from app.pipeline.adapters import scored_from_scan_item
 
 
 def explain_item(req: ExplainRequest) -> ExplainResponse:
     item = req.item
-    n = item.name
+    scored = scored_from_scan_item(item)
+    n = item.raw_name
     t = item.item_type
     path = item.path or ""
-    intel = item.detail.get("intelligence") if isinstance(item.detail.get("intelligence"), dict) else {}
+    intel = item.intelligence.model_dump() if item.intelligence else {}
 
     what = f"This is a {t.value.replace('_', ' ')} named “{n}”"
     if path:
@@ -24,7 +26,9 @@ def explain_item(req: ExplainRequest) -> ExplainResponse:
         )
 
     importance = "Importance depends on whether you rely on its vendor features actively."
-    if t == ItemType.process:
+    if item.protected or item.bucket.value == "risky_system_critical":
+        importance = "Marked protected by rules/action gating — treat as critical."
+    elif t == ItemType.process:
         if is_critical_process(n):
             importance = (
                 "Strong heuristic match for OS, security stack, or low-level drivers/anti-cheat — treat as critical."
@@ -32,7 +36,7 @@ def explain_item(req: ExplainRequest) -> ExplainResponse:
         elif intel.get("plain_english_description"):
             importance = str(intel["plain_english_description"])
         else:
-            mem = item.detail.get("memory_mb")
+            mem = item.metrics.memory_mb
             if mem:
                 importance = f"It currently uses about {float(mem):.0f} MB of RAM; that may be normal for heavy apps."
     elif t == ItemType.service:
@@ -41,7 +45,7 @@ def explain_item(req: ExplainRequest) -> ExplainResponse:
         elif intel.get("plain_english_description"):
             importance = str(intel["plain_english_description"])
         else:
-            st = item.detail.get("start_type")
+            st = item.scanner_facts.get("start_type")
             importance = f"Windows service (start type: {st or 'unknown'}); disabling can break dependent features."
     elif t == ItemType.startup_entry:
         importance = (
@@ -56,7 +60,7 @@ def explain_item(req: ExplainRequest) -> ExplainResponse:
             else "Runs on a timer; may perform updates, maintenance, or vendor housekeeping."
         )
     elif t == ItemType.file_or_folder:
-        hint = item.detail.get("category_hint")
+        hint = item.scanner_facts.get("category_hint") or item.subtype
         importance = f"Filesystem object; category hint: {hint or 'general'}."
     elif t in (ItemType.browser_profile,):
         importance = "Browser storage; clearing frees space but may sign you out of web sessions."
@@ -77,11 +81,13 @@ def explain_item(req: ExplainRequest) -> ExplainResponse:
         installer_guess = "Browser vendor path."
 
     gaming = "Minimal direct gaming impact unless it competes for CPU/GPU during play."
-    if item.rank_gaming_impact is not None and item.rank_gaming_impact > 55:
+    if item.metrics.rank_gaming_impact is not None and item.metrics.rank_gaming_impact > 55:
         gaming = "Elevated gaming-impact score — may cause frame pacing issues or input lag when active."
-    if intel.get("gaming_impact") and not (item.rank_gaming_impact is not None and item.rank_gaming_impact > 55):
+    if intel.get("gaming_impact") and not (
+        item.metrics.rank_gaming_impact is not None and item.metrics.rank_gaming_impact > 55
+    ):
         gaming = f"Local intelligence rates gaming impact as “{intel.get('gaming_impact')}”."
-    if item.detail.get("gpu_heavy"):
+    if item.scanner_facts.get("gpu_heavy"):
         gaming = "Flagged as potentially GPU-heavy — can reduce headroom for GPU-bound titles."
 
     startup = "Unlikely to affect boot unless it is a startup entry or boot service."
@@ -99,9 +105,11 @@ def explain_item(req: ExplainRequest) -> ExplainResponse:
         safe = "Local intelligence: stopping this process is not recommended."
     elif intel.get("safe_to_disable_startup") is False and t == ItemType.startup_entry:
         safe = "Local intelligence: disabling this startup entry is not recommended."
-    if item.rule_bucket.value == "risky_system_critical":
+    if item.protected or item.bucket.value == "risky_system_critical":
         safe = "Not safe to remove/disable without deep research — high chance of breaking OS stability."
-    elif item.rule_bucket.value == "safe_to_remove":
+    elif item.cleanup_eligible:
+        safe = "May be eligible for assisted quarantine cleanup when you explicitly select this file."
+    elif item.bucket.value == "safe_to_remove":
         safe = "Rules classify as low-permanence cache/temp — assisted cleanup with quarantine is appropriate."
 
     breaks = "Removing critical OS files or disabling core services can cause boot failures or security gaps."

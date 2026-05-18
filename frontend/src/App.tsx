@@ -7,59 +7,34 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { ScanResult, ScanItem, client, ExplainResponse, PermissionMode, RiskBucket } from "./api";
 import {
-  ScanResult,
-  ScoredItem,
-  client,
-  ExplainResponse,
-  PermissionMode,
-} from "./api";
+  getIntel,
+  itemBucket,
+  itemName,
+  itemReasoning,
+  itemTypeLabel,
+  knownLabel,
+  normalizedRisk,
+  rankDeletion,
+  rankGaming,
+  rankMemory,
+  vendorCategoryLine,
+} from "./scanItem";
 
-type Intel = {
-  known?: boolean;
-  applicable?: boolean;
-  vendor?: string;
-  category?: string;
-  gaming_impact?: string;
-  startup_impact?: string;
-  risk_level?: string;
-  rules_protect?: boolean;
-};
-
-function getIntel(it: ScoredItem): Intel {
-  const d = it.detail?.intelligence;
-  return d && typeof d === "object" ? (d as Intel) : {};
-}
-
-function knownLabel(it: ScoredItem): "n/a" | "known" | "unknown" {
-  const intel = getIntel(it);
-  if (intel.applicable === false) return "n/a";
-  if (intel.known === true) return "known";
-  return "unknown";
-}
-
-function matchesKnownFilter(it: ScoredItem, f: "all" | "known" | "unknown"): boolean {
+function matchesKnownFilter(it: ScanItem, f: "all" | "known" | "unknown"): boolean {
   if (f === "all") return true;
   const k = knownLabel(it);
   if (k === "n/a") return true;
   return f === "known" ? k === "known" : k === "unknown";
 }
 
-function normalizedRisk(it: ScoredItem): string {
-  const intel = getIntel(it);
-  const ir = (intel.risk_level || "").toLowerCase();
-  if (ir) return ir;
-  if (it.rule_bucket === "risky_system_critical") return "critical";
-  if (it.rule_bucket === "unknown") return "unknown";
-  return "other";
-}
-
-function matchesRiskFilter(it: ScoredItem, f: string): boolean {
+function matchesRiskFilter(it: ScanItem, f: string): boolean {
   if (f === "all") return true;
   return normalizedRisk(it) === f;
 }
 
-function matchesGamingFilter(it: ScoredItem, f: string): boolean {
+function matchesGamingFilter(it: ScanItem, f: string): boolean {
   if (f === "all") return true;
   const intel = getIntel(it);
   const g = (intel.gaming_impact || "").toLowerCase();
@@ -67,7 +42,7 @@ function matchesGamingFilter(it: ScoredItem, f: string): boolean {
     if (f === "very_high" && (g === "very_high" || g === "critical")) return true;
     return g === f;
   }
-  const r = it.rank_gaming_impact ?? 0;
+  const r = rankGaming(it) ?? 0;
   if (f === "critical" || f === "very_high") return r >= 75;
   if (f === "high") return r >= 55 && r < 75;
   if (f === "medium") return r >= 35 && r < 55;
@@ -76,12 +51,12 @@ function matchesGamingFilter(it: ScoredItem, f: string): boolean {
   return true;
 }
 
-function matchesStartupFilter(it: ScoredItem, f: string): boolean {
+function matchesStartupFilter(it: ScanItem, f: string): boolean {
   if (f === "all") return true;
   const intel = getIntel(it);
   const s = (intel.startup_impact || "").toLowerCase();
   if (s) return s === f || (f === "boot-critical" && s.includes("boot"));
-  const r = it.rank_startup_impact ?? 0;
+  const r = it.metrics?.rank_startup_impact ?? 0;
   if (f === "high") return r >= 55;
   if (f === "medium") return r >= 30 && r < 55;
   if (f === "low") return r < 30;
@@ -91,12 +66,12 @@ function matchesStartupFilter(it: ScoredItem, f: string): boolean {
 type SortKey =
   | "name"
   | "item_type"
-  | "rule_bucket"
+  | "bucket"
   | "rank_memory_impact"
   | "rank_gaming_impact"
   | "rank_deletion_risk";
 
-function knownPill(it: ScoredItem) {
+function knownPill(it: ScanItem) {
   const k = knownLabel(it);
   if (k === "n/a") {
     return (
@@ -109,7 +84,7 @@ function knownPill(it: ScoredItem) {
   return <span className="pill intel-unknown">Unknown</span>;
 }
 
-function bucketPill(bucket: ScoredItem["rule_bucket"]) {
+function bucketPill(bucket: RiskBucket) {
   const risky = bucket === "risky_system_critical";
   const safe = bucket === "safe_to_remove" || bucket === "probably_safe";
   const cls = risky ? "pill risky" : safe ? "pill safe" : "pill";
@@ -121,7 +96,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanResult | null>(null);
-  const [selected, setSelected] = useState<ScoredItem | null>(null);
+  const [selected, setSelected] = useState<ScanItem | null>(null);
   const [explain, setExplain] = useState<ExplainResponse | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("rank_memory_impact");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -185,16 +160,22 @@ export default function App() {
   const sortedItems = useMemo(() => {
     const items = scan?.items ?? [];
     const dir = sortDir === "asc" ? 1 : -1;
-    const val = (it: ScoredItem) => {
+    const val = (it: ScanItem) => {
       switch (sortKey) {
         case "name":
-          return it.name.toLowerCase();
+          return itemName(it).toLowerCase();
         case "item_type":
           return it.item_type;
-        case "rule_bucket":
-          return it.rule_bucket;
+        case "bucket":
+          return itemBucket(it);
+        case "rank_memory_impact":
+          return rankMemory(it) ?? 0;
+        case "rank_gaming_impact":
+          return rankGaming(it) ?? 0;
+        case "rank_deletion_risk":
+          return rankDeletion(it) ?? 0;
         default:
-          return Number(it[sortKey] ?? 0);
+          return 0;
       }
     };
     return [...items].sort((a, b) => {
@@ -249,7 +230,7 @@ export default function App() {
     }
   }
 
-  async function runExplain(it: ScoredItem) {
+  async function runExplain(it: ScanItem) {
     setSelected(it);
     setBusy(true);
     setError(null);
@@ -485,7 +466,7 @@ export default function App() {
                   <th onClick={() => toggleSort("name")}>Name</th>
                   <th>Vendor / category</th>
                   <th onClick={() => toggleSort("item_type")}>Type</th>
-                  <th onClick={() => toggleSort("rule_bucket")}>Bucket</th>
+                  <th onClick={() => toggleSort("bucket")}>Bucket</th>
                   <th onClick={() => toggleSort("rank_memory_impact")}>RAM Δ</th>
                   <th onClick={() => toggleSort("rank_gaming_impact")}>Gaming</th>
                   <th onClick={() => toggleSort("rank_deletion_risk")}>Risk</th>
@@ -496,10 +477,7 @@ export default function App() {
                 {displayedItems.map((it) => {
                   const intel = getIntel(it);
                   const unkSvc = it.item_type === "service" && knownLabel(it) === "unknown";
-                  const vendorLine =
-                    intel.vendor || intel.category
-                      ? `${intel.vendor ?? "—"} · ${intel.category ?? "—"}`
-                      : "—";
+                  const vendorLine = vendorCategoryLine(it);
                   return (
                     <tr
                       key={it.id}
@@ -530,7 +508,7 @@ export default function App() {
                           }}
                           onClick={() => runExplain(it)}
                         >
-                          {it.name}
+                          {itemName(it)}
                         </button>
                         {unkSvc ? (
                           <div className="warn-inline" style={{ marginTop: 4 }}>
@@ -551,12 +529,12 @@ export default function App() {
                           </div>
                         ) : null}
                       </td>
-                      <td>{it.item_type.replaceAll("_", " ")}</td>
-                      <td>{bucketPill(it.rule_bucket)}</td>
-                      <td>{it.rank_memory_impact?.toFixed(0) ?? "—"}</td>
-                      <td>{it.rank_gaming_impact?.toFixed(0) ?? "—"}</td>
-                      <td>{it.rank_deletion_risk?.toFixed(0) ?? "—"}</td>
-                      <td>{it.reasoning}</td>
+                      <td>{itemTypeLabel(it)}</td>
+                      <td>{bucketPill(itemBucket(it))}</td>
+                      <td>{rankMemory(it)?.toFixed(0) ?? "—"}</td>
+                      <td>{rankGaming(it)?.toFixed(0) ?? "—"}</td>
+                      <td>{rankDeletion(it)?.toFixed(0) ?? "—"}</td>
+                      <td>{itemReasoning(it)}</td>
                     </tr>
                   );
                 })}
@@ -749,7 +727,7 @@ export default function App() {
           <section className="panel">
             <div className="panel-header">
               <h2>Explain This</h2>
-              <span className="muted">{selected?.name ?? "Select an item"}</span>
+              <span className="muted">{selected ? itemName(selected) : "Select an item"}</span>
             </div>
             <div className="explain">
               {error ? <p style={{ color: "var(--danger)" }}>{error}</p> : null}

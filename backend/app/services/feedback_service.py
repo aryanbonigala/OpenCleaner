@@ -3,10 +3,14 @@ from __future__ import annotations
 import hashlib
 
 from app.db import db_conn
+from app.models.scan_item import ScanItem
+from app.pipeline.adapters import scored_from_scan_item
 from app.models.schemas import ScoredItem
 
 
-def fingerprint_item(item: ScoredItem) -> str:
+def fingerprint_item(item: ScoredItem | ScanItem) -> str:
+    if isinstance(item, ScanItem):
+        item = scored_from_scan_item(item)
     raw = f"{item.item_type.value}|{item.name}|{item.path or ''}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 

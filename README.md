@@ -7,6 +7,15 @@ This repository contains:
 - `backend/`: Python **FastAPI** service, **SQLite** storage, modular scanners, deterministic rules engine, local ML-assisted ranking, quarantine + audit logging.
 - `frontend/`: **Tauri + React + Vite** UI (dark dashboard, sortable inventory, charts, Explain This, Safety Center, mode switching).
 
+## v0.4 (canonical scan model + reasoning pipeline)
+
+- **Canonical `ScanItem`** (`backend/app/models/scan_item.py`) — unified typed schema for all inventory rows (metrics, intelligence, bucket, action flags, provenance).
+- **Pipeline** (`backend/app/pipeline/`) — `normalize` → `rules` → `intelligence` → `ML` (metrics only) → `explanation` → `action_gating`; rules always win; intelligence cannot downgrade critical items.
+- **Provenance** — every stage appends `decided_by` / `evidence` metadata; visible in JSON exports.
+- **Deterministic export** — `serialize_scan_result()` stable key order and sorted items (`backend/app/pipeline/serialize.py`).
+- **Frontend** — `frontend/src/scanItem.ts` helpers; API types aligned with canonical shape.
+- **Docs** — [docs/SCAN_SCHEMA.md](docs/SCAN_SCHEMA.md), [docs/SCAN_PIPELINE.md](docs/SCAN_PIPELINE.md).
+
 ## v0.3 (Windows Intelligence Database)
 
 - **Local encyclopedia**: `backend/data/windows_intelligence.json` — vendor/category, plain-English explanations, qualitative impact and risk hints for common Windows and gaming ecosystem software (no cloud APIs).

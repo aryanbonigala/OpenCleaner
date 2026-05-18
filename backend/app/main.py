@@ -33,11 +33,12 @@ from app.models.schemas import (
     PerformancePreviewRequest,
     PerformanceSessionRequest,
     ScanResult,
-    ScoredItem,
 )
+from app.models.scan_item import ScanItem
+from app.pipeline.adapters import scored_from_scan_item
 from app.engine.protected_registry import protected_pattern_count
 from app.services.feedback_service import record_feedback
-from app.services.scan_service import latest_scan_from_db, run_full_scan
+from app.services.scan_service import export_canonical_payload, latest_scan_from_db, run_full_scan
 
 
 @asynccontextmanager
@@ -46,7 +47,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="OpenCleaner AI", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="OpenCleaner AI", version="0.4.0", lifespan=lifespan)
 
 settings = get_settings()
 app.add_middleware(
@@ -94,13 +95,13 @@ class ExplainBody(BaseModel):
 
 @app.post("/api/explain", response_model=ExplainResponse)
 async def explain(body: ExplainBody) -> ExplainResponse:
-    item = ScoredItem.model_validate(body.item)
+    item = ScanItem.model_validate(body.item)
     return explain_item(ExplainRequest(item=item))
 
 
 @app.post("/api/feedback")
 async def feedback(req: FeedbackRequest) -> dict[str, Any]:
-    item = ScoredItem.model_validate(req.item)
+    item = ScanItem.model_validate(req.item)
     await record_feedback(item, req.decision, req.weight)
     await append_audit(
         "user_feedback",
@@ -252,7 +253,7 @@ async def export_report(fmt: str = "json") -> Any:
         raise HTTPException(status_code=400, detail="no scan")
 
     if fmt == "json":
-        return json.loads(latest.model_dump_json())
+        return export_canonical_payload(latest)
 
     if fmt == "md":
         lines: list[str] = []
@@ -264,9 +265,11 @@ async def export_report(fmt: str = "json") -> Any:
         for k, v in latest.summary.buckets.items():
             lines.append(f"- **{k}**: {v}\n")
         lines.append("\n## Notable items\n\n")
-        for it in sorted(latest.items, key=lambda x: x.rank_deletion_risk or 0, reverse=True)[:40]:
+        for it in sorted(latest.items, key=lambda x: x.metrics.rank_deletion_risk or 0, reverse=True)[:40]:
+            prov = ", ".join(p.stage for p in it.provenance[-3:]) if it.provenance else "—"
             lines.append(
-                f"- `{it.name}` ({it.item_type.value}) — {it.rule_bucket.value} — {it.reasoning}\n"
+                f"- `{it.display_name}` ({it.item_type.value}) — {it.bucket.value} — "
+                f"{it.explanation.summary} [provenance: {prov}]\n"
             )
         return PlainTextResponse("".join(lines), media_type="text/markdown")
 
