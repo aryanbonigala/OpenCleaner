@@ -36,7 +36,10 @@ from app.models.schemas import (
     PerformancePreviewRequest,
     PerformanceSessionRequest,
     ScanResult,
+    UserSettingsPatch,
 )
+from app.models.user_settings import UserSettings
+from app.services.settings_service import load_settings, reset_settings, save_settings
 from app.services import scan_state
 from app.version import API_VERSION, APP_VERSION
 from app.models.scan_item import ScanItem
@@ -78,6 +81,27 @@ async def health() -> dict[str, str]:
 @app.get("/api/scan/status")
 async def scan_status() -> dict[str, bool]:
     return {"scan_in_progress": scan_state.is_scan_in_progress()}
+
+
+@app.get("/api/settings", response_model=UserSettings)
+async def get_user_settings() -> UserSettings:
+    return await load_settings()
+
+
+@app.put("/api/settings", response_model=UserSettings)
+async def put_user_settings(patch: UserSettingsPatch) -> UserSettings:
+    payload = patch.model_dump(exclude_none=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="No settings fields provided.")
+    try:
+        return await save_settings(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@app.post("/api/settings/reset", response_model=UserSettings)
+async def post_settings_reset() -> UserSettings:
+    return await reset_settings()
 
 
 @app.get("/api/mode")
@@ -164,6 +188,12 @@ async def cleanup_preview(req: CleanupPreviewRequest) -> CleanupPreviewResponse:
         raise HTTPException(status_code=400, detail="No scan available. Run a scan first.")
     if not req.item_ids:
         raise HTTPException(status_code=400, detail="Select at least one item to preview cleanup.")
+    prefs = await load_settings()
+    if req.include_recycle_bin and not prefs.allows_permanent_delete():
+        raise HTTPException(
+            status_code=400,
+            detail="Recycle Bin emptying requires cleanup mode “manual permanent delete only”.",
+        )
     selected = [it for it in latest.items if it.id in set(req.item_ids)]
     if len(selected) != len(set(req.item_ids)):
         raise HTTPException(status_code=400, detail="Some selected item IDs were not found in the latest scan.")
@@ -171,6 +201,7 @@ async def cleanup_preview(req: CleanupPreviewRequest) -> CleanupPreviewResponse:
         selected,
         confirm_medium_risk=req.confirm_medium_risk,
         include_recycle_bin=req.include_recycle_bin,
+        settings=prefs,
     )
     preview_id = scan_state.store_cleanup_preview(
         scan_id=latest.summary.scan_id,
@@ -223,6 +254,12 @@ async def cleanup_execute(req: CleanupExecuteRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Medium-risk confirmation flag does not match preview.")
     if req.include_recycle_bin != session.include_recycle_bin:
         raise HTTPException(status_code=400, detail="Recycle Bin option does not match preview.")
+    prefs = await load_settings()
+    if req.include_recycle_bin and not prefs.allows_permanent_delete():
+        raise HTTPException(
+            status_code=400,
+            detail="Recycle Bin emptying is disabled while cleanup mode is quarantine-only.",
+        )
     if req.include_recycle_bin and not req.confirm_permanent_delete:
         raise HTTPException(
             status_code=400,
@@ -233,7 +270,11 @@ async def cleanup_execute(req: CleanupExecuteRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Latest scan no longer matches this preview. Scan again.")
     selected = [it for it in latest.items if it.id in set(req.item_ids)]
     result = await assisted_cleanup(
-        mode, selected, req.confirm_medium_risk, include_recycle_bin=req.include_recycle_bin
+        mode,
+        selected,
+        req.confirm_medium_risk,
+        include_recycle_bin=req.include_recycle_bin,
+        settings=prefs,
     )
     quarantined = sum(1 for a in result.get("actions", []) if a.get("quarantine_id"))
     skipped = sum(1 for a in result.get("actions", []) if a.get("skipped"))

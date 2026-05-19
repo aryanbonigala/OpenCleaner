@@ -30,6 +30,9 @@ from app.scanners.startup import scan_startup
 from app.scanners.tasks import scan_scheduled_tasks
 from app.services.feedback_service import feedback_nudge_for
 from app.services import scan_state
+from app.services.settings_service import load_settings
+from app.actions.quarantine_retention import apply_quarantine_retention
+from app.models.user_settings import ScannerToggles
 
 
 async def _load_lists() -> tuple[list[str], list[str]]:
@@ -54,25 +57,39 @@ def _env_use_mock() -> bool:
     return os.environ.get("OPENCLEANER_USE_MOCK", "").lower() in ("1", "true", "yes")
 
 
-def _collect_raw_scored() -> tuple[list[ScoredItem], list[str]]:
+def _scanners_for_toggles(toggles: ScannerToggles) -> list[tuple[str, Any]]:
+    scanners: list[tuple[str, Any]] = []
+    if toggles.performance:
+        scanners.append(("processes", scan_processes))
+    if toggles.startup:
+        scanners.extend([("services", scan_services), ("startup", scan_startup)])
+    if toggles.tasks:
+        scanners.append(("scheduled_tasks", scan_scheduled_tasks))
+    if toggles.files:
+        scanners.extend(
+            [
+                ("temp_and_cache", scan_temp_and_cache),
+                ("downloads", scan_downloads),
+                ("desktop_clutter", scan_desktop_clutter),
+                ("duplicates", scan_duplicates_limited),
+                ("large_unused", scan_large_unused_candidates),
+                ("orphans", scan_orphans_lightweight),
+            ]
+        )
+    if toggles.browser:
+        scanners.append(("browser_profiles", scan_browser_profiles))
+    return scanners
+
+
+def _collect_raw_scored(toggles: ScannerToggles) -> tuple[list[ScoredItem], list[str]]:
     raw_items: list[ScoredItem] = []
     warnings: list[str] = []
-    scanners = (
-        ("processes", scan_processes),
-        ("services", scan_services),
-        ("startup", scan_startup),
-        ("scheduled_tasks", scan_scheduled_tasks),
-        ("temp_and_cache", scan_temp_and_cache),
-        ("downloads", scan_downloads),
-        ("desktop_clutter", scan_desktop_clutter),
-        ("browser_profiles", scan_browser_profiles),
-        ("duplicates", scan_duplicates_limited),
-        ("large_unused", scan_large_unused_candidates),
-        ("orphans", scan_orphans_lightweight),
-    )
+    scanners = _scanners_for_toggles(toggles)
     if _env_use_mock():
         raw_items.extend(raw_to_scored(x) for x in load_mock_scan())
     else:
+        if not scanners:
+            warnings.append("All scanner groups are disabled in settings; enable at least one group.")
         for label, fn in scanners:
             try:
                 raw_items.extend(fn())
@@ -118,11 +135,13 @@ async def run_full_scan(mode: PermissionMode) -> ScanResult:
 
 
 async def _run_full_scan_inner(mode: PermissionMode) -> ScanResult:
+    prefs = await load_settings()
+    await apply_quarantine_retention(prefs)
     allow, block = await _load_lists()
     scan_id = str(uuid.uuid4())
     platform = os_friendly_name()
 
-    raw, warnings = _collect_raw_scored()
+    raw, warnings = _collect_raw_scored(prefs.scanner_toggles)
     finalized = await _finalize_items(raw, allow, block)
 
     buckets: dict[str, int] = {}

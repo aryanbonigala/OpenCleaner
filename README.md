@@ -7,6 +7,17 @@ This repository contains:
 - `backend/`: Python **FastAPI** service, **SQLite** storage, modular scanners, deterministic rules engine, local ML-assisted ranking, quarantine + audit logging.
 - `frontend/`: **Tauri + React + Vite** UI (dark dashboard, sortable inventory, charts, Explain This, Safety Center, mode switching).
 
+## v0.4.2 (Settings and safety preferences)
+
+**Version tag:** `v0.4.2_SettingsAndSafetyPreferences`
+
+- **Local settings** stored in SQLite — cleanup mode, risk visibility, scanner toggles, quarantine retention, logging mode.
+- **API**: `GET/PUT /api/settings`, `POST /api/settings/reset`.
+- **Conservative defaults**: quarantine-only cleanup, basic risk visibility, all scanners on, manual quarantine retention, redacted audit paths.
+- **Settings UI** — full page with reset and advanced-risk warning.
+
+See [docs/SETTINGS.md](docs/SETTINGS.md).
+
 ## v0.4.1 (Frontend UX Alpha)
 
 **Version tag:** `v0.4.1_FrontendUXAlpha`

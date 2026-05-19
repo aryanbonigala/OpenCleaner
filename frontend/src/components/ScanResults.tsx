@@ -17,6 +17,10 @@ type Props = {
   onShowCleanupOnlyChange: (v: boolean) => void;
   confirmMedium: boolean;
   onConfirmMediumChange: (v: boolean) => void;
+  canEmptyRecycle: boolean;
+  includeRecycleBin: boolean;
+  onIncludeRecycleBinChange: (v: boolean) => void;
+  advancedRisk: boolean;
 };
 
 export function ScanResults({
@@ -32,6 +36,10 @@ export function ScanResults({
   onShowCleanupOnlyChange,
   confirmMedium,
   onConfirmMediumChange,
+  canEmptyRecycle,
+  includeRecycleBin,
+  onIncludeRecycleBinChange,
+  advancedRisk,
 }: Props) {
   const [filter, setFilter] = useState<"all" | "files" | "safe">("files");
 
@@ -40,8 +48,14 @@ export function ScanResults({
     if (showCleanupOnly) list = list.filter((i) => i.item_type === "file_or_folder");
     if (filter === "files") list = list.filter((i) => i.item_type === "file_or_folder");
     if (filter === "safe") list = list.filter((i) => itemBucket(i) === "safe_to_remove");
+    if (!advancedRisk) {
+      list = list.filter((i) => {
+        const b = itemBucket(i);
+        return b !== "unknown" && b !== "ask_user" && b !== "risky_system_critical";
+      });
+    }
     return list;
-  }, [scan.items, filter, showCleanupOnly]);
+  }, [scan.items, filter, showCleanupOnly, advancedRisk]);
 
   const warnings = scan.summary.scanner_warnings ?? [];
 
@@ -75,14 +89,26 @@ export function ScanResults({
           />{" "}
           Cleanup candidates only
         </label>
-        <label className="muted">
-          <input
-            type="checkbox"
-            checked={confirmMedium}
-            onChange={(e) => onConfirmMediumChange(e.target.checked)}
-          />{" "}
-          Allow medium-risk files in preview
-        </label>
+        {advancedRisk ? (
+          <label className="muted">
+            <input
+              type="checkbox"
+              checked={confirmMedium}
+              onChange={(e) => onConfirmMediumChange(e.target.checked)}
+            />{" "}
+            Allow medium-risk files in preview
+          </label>
+        ) : null}
+        {canEmptyRecycle ? (
+          <label className="muted">
+            <input
+              type="checkbox"
+              checked={includeRecycleBin}
+              onChange={(e) => onIncludeRecycleBinChange(e.target.checked)}
+            />{" "}
+            Include Recycle Bin in preview (permanent; extra confirmation required)
+          </label>
+        ) : null}
         <button type="button" onClick={onSelectAllEligible}>
           Select eligible low-risk files
         </button>

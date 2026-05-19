@@ -9,6 +9,7 @@ from app.db import append_audit
 from app.engine.rules_engine import is_critical_path
 from app.models.schemas import PermissionMode, RiskBucket
 from app.models.scan_item import ScanItem
+from app.models.user_settings import UserSettings
 
 
 async def assisted_cleanup(
@@ -16,7 +17,10 @@ async def assisted_cleanup(
     items: list[ScanItem],
     confirm_medium_risk: bool,
     include_recycle_bin: bool = False,
+    settings: UserSettings | None = None,
 ) -> dict:
+    prefs = settings or UserSettings()
+    advanced = prefs.is_advanced_risk()
     if mode != PermissionMode.assisted:
         raise PermissionError("Assisted cleanup requires assisted permission mode.")
 
@@ -52,6 +56,18 @@ async def assisted_cleanup(
             "installer_residual",
             "downloads_general",
         }
+
+        if it.bucket in {RiskBucket.unknown, RiskBucket.ask_user} and (
+            not advanced or not confirm_medium_risk
+        ):
+            actions.append(
+                {
+                    "id": it.id,
+                    "skipped": True,
+                    "reason": "unknown/ask_user blocked by risk visibility settings",
+                }
+            )
+            continue
 
         if it.bucket not in allowed_buckets and not (
             confirm_medium_risk and hint in low_risk_hints
@@ -92,7 +108,10 @@ async def assisted_cleanup(
                 error=str(e),
             )
 
-    if include_recycle_bin and sys.platform == "win32":
+    if include_recycle_bin and not prefs.allows_permanent_delete():
+        errors.append("recycle_bin:disabled_by_cleanup_mode")
+        actions.append({"recycle_bin": "blocked", "reason": "quarantine_only mode"})
+    elif include_recycle_bin and sys.platform == "win32":
         try:
             subprocess.run(
                 ["powershell", "-NoProfile", "-Command", "Clear-RecycleBin -Force -ErrorAction SilentlyContinue"],

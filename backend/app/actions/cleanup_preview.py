@@ -5,6 +5,7 @@ from pathlib import Path
 from app.engine.rules_engine import is_critical_path
 from app.models.enums import RiskBucket
 from app.models.scan_item import ScanItem
+from app.models.user_settings import UserSettings
 
 
 def _file_size_bytes(it: ScanItem) -> int:
@@ -24,7 +25,10 @@ def preview_cleanup_items(
     *,
     confirm_medium_risk: bool,
     include_recycle_bin: bool,
+    settings: UserSettings | None = None,
 ) -> dict:
+    prefs = settings or UserSettings()
+    advanced = prefs.is_advanced_risk()
     """
     Dry-run: classify each selected item without mutating disk.
     """
@@ -63,13 +67,21 @@ def preview_cleanup_items(
             row["status"] = "blocked"
             row["reason"] = "Protected or critical — cannot be selected for automated cleanup."
             blocked += 1
-        elif it.bucket == RiskBucket.unknown and not confirm_medium_risk:
+        elif it.bucket == RiskBucket.unknown and (not advanced or not confirm_medium_risk):
             row["status"] = "blocked"
-            row["reason"] = "Unknown risk — not eligible unless you enable advanced confirmation."
+            row["reason"] = (
+                "Unknown risk — enable Advanced risk visibility in Settings and confirm medium-risk."
+                if not advanced
+                else "Unknown risk — confirm medium-risk to include."
+            )
             blocked += 1
-        elif it.bucket == RiskBucket.ask_user and not confirm_medium_risk:
+        elif it.bucket == RiskBucket.ask_user and (not advanced or not confirm_medium_risk):
             row["status"] = "blocked"
-            row["reason"] = "Needs your review — enable medium-risk confirmation to include."
+            row["reason"] = (
+                "Needs your review — enable Advanced risk visibility in Settings first."
+                if not advanced
+                else "Needs your review — confirm medium-risk to include."
+            )
             blocked += 1
         elif not it.cleanup_eligible and not confirm_medium_risk:
             row["status"] = "blocked"
@@ -107,9 +119,13 @@ def preview_cleanup_items(
 
     recycle_note = None
     if include_recycle_bin:
-        recycle_note = (
-            "Recycle Bin will be emptied if you confirm permanent delete — this is not reversible from quarantine."
-        )
+        if not prefs.allows_permanent_delete():
+            recycle_note = "Recycle Bin emptying is disabled while cleanup mode is quarantine-only."
+        else:
+            recycle_note = (
+                "Recycle Bin will be emptied if you confirm permanent delete — "
+                "this is not reversible from quarantine."
+            )
 
     return {
         "items": rows,

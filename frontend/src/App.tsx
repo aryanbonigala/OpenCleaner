@@ -6,6 +6,8 @@ import {
   PermissionMode,
   ScanItem,
   ScanResult,
+  UserSettings,
+  UserSettingsPatch,
   client,
   parseApiError,
 } from "./api";
@@ -26,9 +28,12 @@ type View = "dashboard" | "results" | "cleanup_review" | "cleanup_summary" | "qu
 export default function App() {
   const [view, setView] = useState<View>("dashboard");
   const [mode, setMode] = useState<PermissionMode>("read_only");
-  const [advancedMode, setAdvancedMode] = useState(false);
-  const [includeRecycleBin, setIncludeRecycleBin] = useState(false);
+  const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
   const [version, setVersion] = useState<string | null>(null);
+
+  const [includeRecycleBin, setIncludeRecycleBin] = useState(false);
+  const advancedMode = userSettings?.risk_visibility === "advanced";
+  const canEmptyRecycle = userSettings?.cleanup_mode === "manual_permanent_delete_only";
 
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -74,6 +79,10 @@ export default function App() {
     client
       .getMode()
       .then((m) => setMode(m.mode))
+      .catch(() => undefined);
+    client
+      .getSettings()
+      .then((s) => setUserSettings(s))
       .catch(() => undefined);
     client
       .latest()
@@ -133,7 +142,38 @@ export default function App() {
 
   function selectAllEligible() {
     if (!scan) return;
-    setSelectedIds(defaultSelectedIds(scan.items, advancedMode));
+    setSelectedIds(defaultSelectedIds(scan.items, advancedMode ?? false));
+  }
+
+  async function patchSettings(patch: UserSettingsPatch) {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await client.saveSettings(patch);
+      setUserSettings(next);
+      if (scan && next.risk_visibility === "basic") {
+        setSelectedIds(defaultSelectedIds(scan.items, false));
+      }
+    } catch (e) {
+      setError(parseApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetSettings() {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await client.resetSettings();
+      setUserSettings(next);
+      if (scan) setSelectedIds(defaultSelectedIds(scan.items, false));
+      setConfirmMedium(false);
+    } catch (e) {
+      setError(parseApiError(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function openItem(item: ScanItem) {
@@ -162,7 +202,7 @@ export default function App() {
       const p = await client.cleanupPreview(
         [...selectedIds],
         confirmMedium,
-        includeRecycleBin
+        canEmptyRecycle && includeRecycleBin
       );
       setPreview(p);
       setConfirmCleanup(false);
@@ -187,7 +227,7 @@ export default function App() {
         preview_id: preview.preview_id,
         item_ids: [...selectedIds],
         confirm_medium_risk: confirmMedium,
-        include_recycle_bin: includeRecycleBin,
+        include_recycle_bin: canEmptyRecycle && includeRecycleBin,
         confirm_permanent_delete: confirmPermanent,
       });
       setCleanupResult(result);
@@ -291,6 +331,10 @@ export default function App() {
               onShowCleanupOnlyChange={setShowCleanupOnly}
               confirmMedium={confirmMedium}
               onConfirmMediumChange={setConfirmMedium}
+              canEmptyRecycle={canEmptyRecycle}
+              includeRecycleBin={includeRecycleBin}
+              onIncludeRecycleBinChange={setIncludeRecycleBin}
+              advancedRisk={advancedMode ?? false}
             />
             <FindingDetails item={detailItem} explain={explain} loading={explainLoading} />
           </div>
@@ -327,16 +371,19 @@ export default function App() {
           />
         ) : null}
 
-        {view === "settings" ? (
+        {view === "settings" && userSettings ? (
           <Settings
             mode={mode}
-            advancedMode={advancedMode}
-            includeRecycleBin={includeRecycleBin}
+            settings={userSettings}
             onModeChange={changeMode}
-            onAdvancedChange={setAdvancedMode}
-            onRecycleBinChange={setIncludeRecycleBin}
+            onSaveSettings={patchSettings}
+            onResetSettings={resetSettings}
             busy={busy}
           />
+        ) : view === "settings" ? (
+          <p className="muted" style={{ padding: 12 }}>
+            Loading settings…
+          </p>
         ) : null}
       </main>
     </div>

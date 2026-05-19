@@ -13,6 +13,7 @@ from app.models.enums import ItemType, PermissionMode, RiskBucket
 from app.models.scan_item import ScanItem
 from app.models.schemas import ScanResult, ScanSummary
 from app.services import scan_state
+from app.services.settings_service import default_settings
 from app.version import APP_VERSION
 
 
@@ -117,7 +118,10 @@ def test_unknown_item_blocked_in_preview_unit():
 
 def test_preview_endpoint_returns_preview_id(client):
     latest = _scan_result([_file_item("a")])
-    with patch("app.main.latest_scan_from_db", new=AsyncMock(return_value=latest)):
+    with (
+        patch("app.main.latest_scan_from_db", new=AsyncMock(return_value=latest)),
+        patch("app.main.load_settings", new=AsyncMock(return_value=default_settings())),
+    ):
         r = client.post("/api/cleanup/preview", json={"item_ids": ["a"]})
     assert r.status_code == 200
     body = r.json()

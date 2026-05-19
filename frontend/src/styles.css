@@ -367,6 +367,30 @@ tr.row-unknown-svc {
 }
 
 .dashboard-body,
+.settings-section {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-section h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.settings-section label {
+  display: block;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.settings-section select {
+  display: block;
+  margin-top: 4px;
+  width: 100%;
+  max-width: 520px;
+}
+
 .settings-body,
 .cleanup-review-body,
 .cleanup-summary-body {

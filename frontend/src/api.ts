@@ -179,6 +179,34 @@ export interface ScanResult {
   items: ScanItem[];
 }
 
+export type CleanupMode = "quarantine_only" | "manual_permanent_delete_only";
+export type RiskVisibility = "basic" | "advanced";
+export type QuarantineRetention = "7_days" | "14_days" | "30_days" | "manual_only";
+export type LoggingMode = "normal" | "redacted_paths" | "minimal";
+
+export interface ScannerToggles {
+  files: boolean;
+  browser: boolean;
+  startup: boolean;
+  tasks: boolean;
+  performance: boolean;
+}
+
+export interface UserSettings {
+  settings_version: number;
+  cleanup_mode: CleanupMode;
+  risk_visibility: RiskVisibility;
+  scanner_toggles: ScannerToggles;
+  quarantine_retention: QuarantineRetention;
+  logging_mode: LoggingMode;
+}
+
+export type UserSettingsPatch = Partial<
+  Omit<UserSettings, "scanner_toggles" | "settings_version">
+> & {
+  scanner_toggles?: Partial<ScannerToggles>;
+};
+
 export interface ExplainResponse {
   what_it_does: string;
   importance: string;
@@ -205,6 +233,16 @@ export const client = {
   health: () =>
     api<{ status: string; version: string; api_version: string; scan_in_progress: string }>("/health"),
   scanStatus: () => api<{ scan_in_progress: boolean }>("/api/scan/status"),
+  getSettings: () => api<UserSettings>("/api/settings"),
+  saveSettings: (patch: UserSettingsPatch) =>
+    api<UserSettings>("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
+  resetSettings: () =>
+    api<UserSettings>("/api/settings/reset", {
+      method: "POST",
+    }),
   getMode: () => api<{ mode: PermissionMode }>("/api/mode"),
   setMode: (mode: PermissionMode) =>
     api<{ mode: PermissionMode }>("/api/mode", {

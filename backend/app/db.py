@@ -26,6 +26,13 @@ async def init_db(settings: Settings | None = None) -> None:
         await db.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES ('telemetry', 'false')"
         )
+        from app.services.settings_service import default_settings
+
+        defaults = default_settings().model_dump_json()
+        await db.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('user_preferences_v1', ?)",
+            (defaults,),
+        )
         await db.commit()
 
 
@@ -65,12 +72,17 @@ async def append_audit(
     error: str | None = None,
     actor: str = "local_ui",
 ) -> None:
+    from app.services.settings_service import load_settings
+    from app.utils.audit_detail import sanitize_audit_detail
+
+    prefs = await load_settings()
+    safe_detail = sanitize_audit_detail(detail, prefs.logging_mode)
     async with await db_conn() as db:
         await db.execute(
             """
             INSERT INTO audit_log (action, mode, actor, detail_json, success, error)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (action, mode, actor, json.dumps(detail, ensure_ascii=False), int(success), error),
+            (action, mode, actor, json.dumps(safe_detail, ensure_ascii=False), int(success), error),
         )
         await db.commit()

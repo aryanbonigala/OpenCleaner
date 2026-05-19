@@ -130,3 +130,13 @@ class FeedbackRequest(BaseModel):
 
 class ModeSetRequest(BaseModel):
     mode: PermissionMode
+
+
+class UserSettingsPatch(BaseModel):
+    """Partial update — unknown keys are ignored by the service layer."""
+
+    cleanup_mode: str | None = None
+    risk_visibility: str | None = None
+    quarantine_retention: str | None = None
+    logging_mode: str | None = None
+    scanner_toggles: dict[str, bool] | None = None
