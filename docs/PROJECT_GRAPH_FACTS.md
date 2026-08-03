@@ -63,6 +63,7 @@ Last verified against commit `a3a31b2`.
 - `frontend/src/components/ChatSuggestedPrompts.tsx` — canned prompt chips that submit preset chat messages.
 - `frontend/src/components/ChatPreviewResponse.tsx` — renders chat preview response: summary, warnings, item lists, actions, disclaimer.
 - `frontend/src/components/ChatPreviewItemList.tsx` — renders one labeled list of chat preview items by status.
+- `docs/VERSION_API_CONTRACT_AUDIT.md` — v0.1.0/v0.1.1 backend/API contract audit; findings, gaps, next task.
 
 ## Decision
 
@@ -112,6 +113,8 @@ Last verified against commit `a3a31b2`.
 - Full-repo `ruff check` has pre-existing unrelated errors (unused imports in
   `app/main.py`, `app/pipeline/*`, `app/engine/*`, some tests). Do not fix them incidentally.
 - `stable_path_id` does not resolve symlinks by design; a moved file correctly gets a new id.
+- `ScanSummary` has no per-scan `duration`/`status` field and `ScanResult` carries no
+  `api_version` — flagged in `docs/VERSION_API_CONTRACT_AUDIT.md` as the next v0.1.0/v0.1.1 gap.
 
 ## Superseded facts
 
