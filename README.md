@@ -138,6 +138,29 @@ Force the mock dataset (useful on CI or sandboxes without live process/service a
 export OPENCLEANER_USE_MOCK=1
 ```
 
+### Local data directory
+
+Local data (SQLite database, quarantine, logs) is stored under `~/.opencleaner/` by default. Override it with:
+
+```bash
+export OPENCLEANER_DATA_DIR=/path/to/dir
+```
+
+## Safe smoke test
+
+A copy-pasteable, non-mutating way to verify a fresh clone is wired correctly. Runs the backend in **mock mode** and builds the frontend — it does not touch live OS process/service/filesystem state, and does not start cleanup, performance, or process-end execution flows:
+
+```bash
+cd backend
+source .venv/bin/activate
+OPENCLEANER_USE_MOCK=1 python -c "import app.main"
+
+cd ../frontend
+npm run build
+```
+
+A clean import and a successful `dist/` build mean the backend and frontend are both wired correctly, with no live scan and no mutation of local state.
+
 ## Privacy and local-first notes
 
 - No cloud dependency and **no telemetry by default** (`telemetry_enabled=false` in settings, stored as `settings.telemetry=false` in SQLite).
