@@ -7,6 +7,8 @@ duration/status on ScanSummary.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -14,6 +16,50 @@ from app.main import app
 from app.version import API_VERSION
 
 import pytest
+
+# Top-level ScanResult keys the frontend (frontend/src/api.ts ScanResult) relies on.
+SCAN_RESULT_KEYS = {"summary", "items", "api_version"}
+
+# ScanSummary keys the frontend (frontend/src/api.ts ScanSummary) relies on.
+SCAN_SUMMARY_KEYS = {
+    "scan_id",
+    "scan_schema_version",
+    "platform",
+    "mode",
+    "items_count",
+    "buckets",
+    "disk_usage_sample",
+    "generated_at",
+    "scanner_warnings",
+    "started_at",
+    "finished_at",
+    "duration_ms",
+    "status",
+}
+
+# ScanItem keys the frontend (frontend/src/api.ts ScanItem) relies on. Not exhaustive
+# of every nested metadata field — those are free to expand without breaking this test.
+SCAN_ITEM_KEYS = {
+    "id",
+    "scan_version",
+    "item_type",
+    "source",
+    "display_name",
+    "raw_name",
+    "metrics",
+    "bucket",
+    "risk_level",
+    "protected",
+    "cleanup_eligible",
+    "performance_eligible",
+    "explanation",
+    "recommendations",
+    "provenance",
+    "timestamps",
+    "scanner_facts",
+    "confidence",
+    "process_control",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -93,3 +139,37 @@ def test_latest_scan_round_trips_contract_fields(monkeypatch):
     latest_summary = latest.json()["summary"]
     for field in ("started_at", "finished_at", "duration_ms", "status"):
         assert latest_summary[field] == posted_summary[field]
+
+
+def test_scan_response_shape_matches_frontend_contract(monkeypatch):
+    """Pins ScanResult/ScanSummary/ScanItem keys against frontend/src/api.ts.
+
+    Fails loudly on removal or rename of a contract-critical field so drift between
+    schemas.py/scan_item.py and api.ts can't happen silently.
+    """
+    monkeypatch.setenv("OPENCLEANER_USE_MOCK", "1")
+    with TestClient(app) as client:
+        resp = client.post("/api/scan")
+    body = resp.json()
+
+    assert SCAN_RESULT_KEYS <= body.keys()
+    assert SCAN_SUMMARY_KEYS <= body["summary"].keys()
+    assert isinstance(body["items"], list)
+    assert body["items"], "mock scan produced no items to check items[0] against"
+    assert SCAN_ITEM_KEYS <= body["items"][0].keys()
+
+    assert isinstance(body["api_version"], str)
+    assert body["summary"]["status"] in ("success", "partial_success", "failed")
+    assert body["summary"]["duration_ms"] is None or isinstance(body["summary"]["duration_ms"], int)
+    assert isinstance(body["summary"]["scanner_warnings"], list)
+
+
+def test_frontend_api_ts_declares_contract_fields():
+    """Narrow text smoke: frontend/src/api.ts must still declare the fields the
+    backend contract test above pins, so a frontend-only edit can't silently drop them.
+    """
+    api_ts = Path(__file__).parents[2] / "frontend" / "src" / "api.ts"
+    text = api_ts.read_text()
+
+    for field in SCAN_RESULT_KEYS | SCAN_SUMMARY_KEYS:
+        assert f"{field}" in text, f"frontend/src/api.ts is missing expected field: {field}"

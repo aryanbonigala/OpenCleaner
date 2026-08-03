@@ -9,6 +9,14 @@ now carries `started_at`, `finished_at`, `duration_ms`, and `status`
 `"failed"` remains reserved — no code path returns a `ScanResult` on total scan
 failure). See `backend/tests/test_scan_response_contract.py`.
 
+**Update 2:** the v0.1.1 schema-drift gap below has been closed.
+`backend/tests/test_scan_response_contract.py::test_scan_response_shape_matches_frontend_contract`
+pins the exact top-level `ScanResult` keys, the `summary` keys, and representative
+`items[0]` keys (plus contract-critical field types) against what
+`frontend/src/api.ts` declares; `test_frontend_api_ts_declares_contract_fields` is a
+narrow text smoke that fails if `api.ts` drops one of those field names. Removing or
+renaming a contract-critical field now fails a test instead of only manual review.
+
 ## Findings
 
 1. **Central version constant** — Yes. `backend/app/version.py` defines `APP_VERSION`
@@ -73,9 +81,9 @@ failure). See `backend/tests/test_scan_response_contract.py`.
 - No API version is embedded in the scan/response payload itself (only in `/health`
   and the FastAPI app object) — contract-locking a versioned response schema would
   want `api_version` (or similar) on `ScanResult`/`ScanSummary` too, not just `/health`.
-- No visible contract test that pins the exact `ScanItem`/`ScanResult` JSON shape
+- ~~No visible contract test that pins the exact `ScanItem`/`ScanResult` JSON shape
   against `frontend/src/api.ts` (i.e., no schema-drift CI check) — drift today is
-  caught by manual review only.
+  caught by manual review only.~~ Closed — see Update 2 above.
 
 ## Scanner mutation/read-only concerns
 
