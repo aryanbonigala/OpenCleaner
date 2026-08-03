@@ -106,7 +106,6 @@ export function ChatPreviewPanel({ onRunScan, scan = null, onNavigate }: Props) 
           <ChatSuggestedPrompts onSelect={handleSuggested} />
 
           <div className="chat-safety-footer">
-            <p className="footer-note">{PREVIEW_ONLY_NOTICE}</p>
             <p className="footer-note">Unknown and locked items are not safe by default.</p>
           </div>
 
