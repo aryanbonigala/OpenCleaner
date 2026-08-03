@@ -37,8 +37,17 @@ async def init_db(settings: Settings | None = None) -> None:
 
 
 async def db_conn(settings: Settings | None = None) -> aiosqlite.Connection:
+    """Return an *unstarted* connection; callers own its lifecycle.
+
+    Must not be awaited into a live connection here: `aiosqlite.Connection.__aenter__`
+    awaits the connection itself, which starts its worker thread. Pre-awaiting would
+    start that thread once here and again at the call site, raising
+    "RuntimeError: threads can only be started once" and leaking the worker.
+
+    Always use as: `async with await db_conn() as db:` — `__aexit__` closes it.
+    """
     settings = settings or get_settings()
-    return await aiosqlite.connect(settings.database_path)
+    return aiosqlite.connect(settings.database_path)
 
 
 async def get_setting(key: str, default: str | None = None) -> str | None:
