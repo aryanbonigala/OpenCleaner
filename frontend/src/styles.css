@@ -466,6 +466,9 @@ tr.row-unknown-svc {
   padding: 0;
   cursor: pointer;
   text-align: left;
+  min-width: 160px;
+  max-width: 260px;
+  overflow-wrap: anywhere;
 }
 
 .finding-meta {
