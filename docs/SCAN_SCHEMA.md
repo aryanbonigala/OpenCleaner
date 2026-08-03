@@ -95,6 +95,16 @@ Current limits of this layer, deliberate rather than accidental:
 Items stored before this block existed rehydrate with defaults, so `applicable` is derived and
 the action flags stay `false`.
 
+### Who reads it
+
+`app/services/process_inventory.py` exposes the block over `GET /api/processes`,
+`GET /api/processes/{pid}`, and `POST /api/processes/preview-end`. That layer is read-only: it
+filters the latest scan to the four process-control item types, groups counts by
+`process_control.category`, and reports what *would* be offered later. Nothing executes —
+`POST /api/processes/end` returns `501`, and preview-end marks an item `would_allow` only when
+`safe_to_suspend` is already `true`; essential, `blocked`, `unknown`, and `report_only` items are
+blocked, and `explicit_selection_required` needs `confirm_explicit_selection=true`.
+
 ## Provenance record
 
 Each pipeline stage appends one record:

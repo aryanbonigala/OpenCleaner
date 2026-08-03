@@ -482,6 +482,15 @@ Enforced in `backend/app/engine/process_action_policy.py` and mirrored (not re-d
 
 ## 12. API changes
 
+**Implementation status.** The read-only slice is now live in `backend/app/main.py` +
+`backend/app/services/process_inventory.py`: `GET /api/processes`, `GET /api/processes/{pid}`,
+and `POST /api/processes/preview-end` (preview/report-only, no OS mutation, no preview token).
+`POST /api/processes/end` exists but always returns **501** so no client invents an execute path.
+The shipped shapes are the flat ones described in the task spec (`scan_id` / `generated_at` /
+`platform` / `items_count` / `counts` / `items` / `warnings` / `message`) and read from the
+**latest persisted scan**, not a live snapshot — the richer live-inventory shape sketched below
+is still the target. `/api/performance/*` and `/api/chat/*` remain unimplemented.
+
 ### `GET /api/processes`
 
 Response:

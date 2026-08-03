@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.models.enums import ItemType, PermissionMode, PerformancePreset, RiskBucket
-from app.models.scan_item import SCAN_SCHEMA_VERSION, ScanItem
+from app.models.scan_item import SCAN_SCHEMA_VERSION, ProcessControl, ScanItem
 
 # Re-export enums for backward compatibility
 __all__ = [
@@ -130,6 +130,41 @@ class FeedbackRequest(BaseModel):
 
 class ModeSetRequest(BaseModel):
     mode: PermissionMode
+
+
+class ProcessInventoryResponse(BaseModel):
+    """Read-only process-control inventory from the latest scan. `message` is set when none exists."""
+
+    scan_id: str | None = None
+    generated_at: str | None = None
+    platform: str | None = None
+    items_count: int = 0
+    counts: dict[str, int] = Field(default_factory=dict)
+    items: list[ScanItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
+class ProcessPreviewEndRequest(BaseModel):
+    item_ids: list[str]
+    confirm_explicit_selection: bool = False
+
+
+class ProcessPreviewEndItem(BaseModel):
+    id: str
+    display_name: str
+    pid: int | None = None
+    status: Literal["would_allow", "blocked", "skipped"]
+    recommended_action: Literal["suspend_preview_only", "end_preview_only", "report_only", "blocked"]
+    reason: str
+    process_control: ProcessControl | None = None
+
+
+class ProcessPreviewEndResponse(BaseModel):
+    preview_id: str | None = None
+    counts: dict[str, int]
+    items: list[ProcessPreviewEndItem]
+    disclaimer: str
 
 
 class UserSettingsPatch(BaseModel):

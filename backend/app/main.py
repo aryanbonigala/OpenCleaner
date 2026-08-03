@@ -35,6 +35,9 @@ from app.models.schemas import (
     PermissionMode,
     PerformancePreviewRequest,
     PerformanceSessionRequest,
+    ProcessInventoryResponse,
+    ProcessPreviewEndRequest,
+    ProcessPreviewEndResponse,
     ScanResult,
     UserSettingsPatch,
 )
@@ -46,6 +49,11 @@ from app.models.scan_item import ScanItem
 from app.pipeline.adapters import scored_from_scan_item
 from app.engine.protected_registry import protected_pattern_count
 from app.services.feedback_service import record_feedback
+from app.services.process_inventory import (
+    get_process_inventory,
+    get_process_item_by_pid,
+    preview_end_processes,
+)
 from app.services.scan_service import export_canonical_payload, latest_scan_from_db, run_full_scan
 
 
@@ -291,6 +299,54 @@ async def cleanup_execute(req: CleanupExecuteRequest) -> dict[str, Any]:
         "blocked": int(session.preview_payload.get("counts", {}).get("blocked", 0)),
     }
     return result
+
+
+@app.get("/api/processes", response_model=ProcessInventoryResponse)
+async def processes_inventory() -> ProcessInventoryResponse:
+    """Read-only inventory from the latest scan. Never scans, never mutates."""
+    return ProcessInventoryResponse.model_validate(get_process_inventory(await latest_scan_from_db()))
+
+
+@app.get("/api/processes/{pid}")
+async def process_detail(pid: int) -> dict[str, Any]:
+    """Latest-scan lookup by PID. The live OS is never inspected here."""
+    latest = await latest_scan_from_db()
+    if latest is None:
+        raise HTTPException(status_code=404, detail="No scan available. Run a scan first.")
+    item = get_process_item_by_pid(latest, pid)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"No process with PID {pid} in the latest scan.")
+    pc = item.process_control
+    return {
+        "item": item,
+        "process_control": pc,
+        "explanation": item.explanation,
+        "safety_summary": pc.user_visible_summary or item.explanation.summary,
+        "blocked_reason": pc.blocked_reason,
+        "scanner_facts": item.scanner_facts,
+    }
+
+
+@app.post("/api/processes/preview-end", response_model=ProcessPreviewEndResponse)
+async def process_preview_end(req: ProcessPreviewEndRequest) -> ProcessPreviewEndResponse:
+    """Preview only — classifies what *would* be offered later. Nothing is executed."""
+    latest = await latest_scan_from_db()
+    if latest is None:
+        raise HTTPException(status_code=400, detail="No scan available. Run a scan first.")
+    payload = preview_end_processes(
+        latest,
+        list(req.item_ids),
+        confirm_explicit_selection=req.confirm_explicit_selection,
+    )
+    return ProcessPreviewEndResponse.model_validate(payload)
+
+
+@app.post("/api/processes/end")
+async def process_end() -> dict[str, Any]:
+    raise HTTPException(
+        status_code=501,
+        detail="Process execution is not implemented yet. Use preview endpoints only.",
+    )
 
 
 @app.get("/api/quarantine")
