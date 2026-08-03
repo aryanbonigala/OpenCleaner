@@ -73,18 +73,42 @@ async def init_db(settings: Settings | None = None) -> None:
         await db.commit()
 
 
-async def db_conn(settings: Settings | None = None) -> aiosqlite.Connection:
-    """Return an *unstarted* connection; callers own its lifecycle.
+class _Connection:
+    """Starts an aiosqlite connection with `PRAGMA foreign_keys = ON`.
 
-    Must not be awaited into a live connection here: `aiosqlite.Connection.__aenter__`
-    awaits the connection itself, which starts its worker thread. Pre-awaiting would
-    start that thread once here and again at the call site, raising
-    "RuntimeError: threads can only be started once" and leaking the worker.
+    The pragma is per-connection and defaults to OFF, so schema.sql's copy only ever
+    applied to init_db's own connection: everywhere else `ON DELETE CASCADE` silently
+    did nothing, deleting a row from `scans` left its `scan_items` orphaned, and rows
+    referencing a nonexistent scan inserted happily. It cannot be set inside
+    `db_conn()`, because the connection has to stay unstarted until the caller's
+    `async with` starts its worker thread exactly once.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self._conn = conn
+
+    async def __aenter__(self) -> aiosqlite.Connection:
+        db = await self._conn.__aenter__()
+        await db.execute("PRAGMA foreign_keys = ON")
+        return db
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        await self._conn.__aexit__(*exc_info)
+
+
+async def db_conn(settings: Settings | None = None) -> _Connection:
+    """Return an *unstarted* connection wrapper; callers own its lifecycle.
+
+    The wrapper must not be awaited into a live connection here:
+    `aiosqlite.Connection.__aenter__` awaits the connection itself, which starts its
+    worker thread. Pre-awaiting would start that thread once here and again at the
+    call site, raising "RuntimeError: threads can only be started once" and leaking
+    the worker.
 
     Always use as: `async with await db_conn() as db:` — `__aexit__` closes it.
     """
     settings = settings or get_settings()
-    return aiosqlite.connect(settings.database_path)
+    return _Connection(aiosqlite.connect(settings.database_path))
 
 
 async def get_setting(key: str, default: str | None = None) -> str | None:

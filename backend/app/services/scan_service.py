@@ -35,6 +35,13 @@ from app.actions.quarantine_retention import apply_quarantine_retention
 from app.models.user_settings import ScannerToggles
 
 
+# A scan is a few hundred rows of detail_json (~2 MB on this repo's dev box), so 25
+# caps the DB near 50 MB while still covering months of ordinary use — and absorbs a
+# burst of back-to-back manual scans without evicting real history. SQLite reuses the
+# freed pages rather than shrinking the file, so the size plateaus instead of growing.
+DEFAULT_SCAN_HISTORY_LIMIT = 25
+
+
 async def _load_lists() -> tuple[list[str], list[str]]:
     async with await db_conn() as db:
         db.row_factory = aiosqlite.Row
@@ -262,6 +269,27 @@ async def _persist_scan(
                 ),
             )
         await db.commit()
+    await prune_old_scans(DEFAULT_SCAN_HISTORY_LIMIT)
+
+
+async def prune_old_scans(keep: int = DEFAULT_SCAN_HISTORY_LIMIT) -> int:
+    """Drop all but the newest `keep` scans; returns how many were deleted.
+
+    Ordering matches latest_scan_from_db(), so the scan that was just persisted is
+    always inside the kept window. `scan_items` go with them via ON DELETE CASCADE,
+    which only fires because db_conn() turns foreign keys on per connection.
+    """
+    if keep < 1:
+        raise ValueError(f"keep must be >= 1, got {keep}")
+    async with await db_conn() as db:
+        cur = await db.execute(
+            "DELETE FROM scans WHERE id NOT IN ("
+            "  SELECT id FROM scans ORDER BY finished_at DESC, rowid DESC LIMIT ?"
+            ")",
+            (keep,),
+        )
+        await db.commit()
+        return cur.rowcount
 
 
 async def latest_scan_from_db() -> ScanResult | None:
