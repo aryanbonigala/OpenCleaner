@@ -55,13 +55,20 @@ Python 3.14) by running `opencleaner-backend --help`, which prints argparse
 usage and exits 0 without binding a port.
 
 `backend/build/`, `backend/dist/`, and `*.spec` are git-ignored — the binary
-is never committed. Windows and Linux builds are **not yet verified**; run
-the same script on those platforms to produce `opencleaner-backend.exe` /
-`opencleaner-backend` respectively (PyInstaller output is platform-native,
-so cross-compilation isn't supported — build on each target OS).
+is never committed. PyInstaller output is platform-native (no
+cross-compilation) — each target OS must run `scripts/bundle_backend.sh`
+itself to produce its own binary.
 
 Tauri sidecar spawning is still not implemented — this script only produces
 the binary; nothing places it next to the Tauri bundle or launches it.
+
+### Platform build matrix
+
+| Platform | Status | Notes |
+|---|---|---|
+| macOS (arm64) | **Verified** | Re-verified at commit `5f36cc4`, 2026-08-03. `scripts/bundle_backend.sh` built `backend/dist/opencleaner-backend` via PyInstaller 6.x / Python 3.14 (venv). `opencleaner-backend --help` printed argparse usage and exited 0 without binding a port. |
+| Linux | **Blocked** | Docker Desktop 28.3.2 CLI is installed but the daemon is not running (`docker info` fails: "Cannot connect to the Docker daemon"). Starting/installing the daemon is out of scope for this verification; no native Linux environment is available either. Run `scripts/bundle_backend.sh` on a Linux host or in a running Linux container to verify — the script itself needs no changes. |
+| Windows | **Blocked** | No Windows build environment (VM, physical machine, or CI runner) is available in this session. Wine and cross-compilation are explicitly unsupported for PyInstaller output, so this must be verified on real Windows. |
 
 ## Windows build notes
 
