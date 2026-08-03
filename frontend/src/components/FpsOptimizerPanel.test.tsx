@@ -239,4 +239,16 @@ describe("FpsOptimizerPanel", () => {
     render(<FpsOptimizerPanel scan={null} scanning={false} onRunScan={vi.fn()} />);
     expect(await screen.findByText("Run a scan first to build a process inventory.")).toBeTruthy();
   });
+
+  it("renders cross-links to the other two surfaces", async () => {
+    const onNavigate = vi.fn();
+    render(<FpsOptimizerPanel scan={null} scanning={false} onRunScan={vi.fn()} onNavigate={onNavigate} />);
+    await screen.findByText("Preview gaming session");
+
+    fireEvent.click(screen.getByText("Review full inventory →"));
+    expect(onNavigate).toHaveBeenCalledWith("processes");
+
+    fireEvent.click(screen.getByText("Ask what can be previewed →"));
+    expect(onNavigate).toHaveBeenCalledWith("chat");
+  });
 });

@@ -1,4 +1,5 @@
 import type { ProcessPreviewEndResponse } from "../api";
+import { PREVIEW_ONLY_NOTICE } from "../copy";
 
 type Props = {
   selectedCount: number;
@@ -35,7 +36,7 @@ export function ProcessPreviewPanel({
     <div className="panel process-preview-panel">
       <div className="panel-header">
         <h2>Preview</h2>
-        <span className="muted">Nothing is ever ended, suspended, or disabled from this panel.</span>
+        <span className="muted">{PREVIEW_ONLY_NOTICE}</span>
       </div>
       <div className="explain">
         <div className="confirm-box">

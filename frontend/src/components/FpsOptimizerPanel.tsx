@@ -1,26 +1,28 @@
-import { useCallback, useEffect, useState } from "react";
-import type { ProcessInventoryResponse, ProcessPreviewEndResponse, ScanItem, ScanResult } from "../api";
+import { useEffect, useState } from "react";
+import type { ProcessPreviewEndResponse, ScanItem, ScanResult } from "../api";
 import { client, parseApiError } from "../api";
+import { PREVIEW_ONLY_NOTICE } from "../copy";
 import { canPreviewProcess } from "../processSelection";
+import { useProcessInventory } from "../useProcessInventory";
 import { EmptyState } from "./EmptyState";
 import { FpsCandidateList } from "./FpsCandidateList";
 import { FpsImpactSummary } from "./FpsImpactSummary";
 import { ProcessPreviewPanel } from "./ProcessPreviewPanel";
+import { SurfaceCrossLinks, type Surface } from "./SurfaceCrossLinks";
 
 type Props = {
   scan: ScanResult | null;
   scanning: boolean;
   onRunScan: () => void;
+  onNavigate?: (target: Surface) => void;
 };
 
 function isFpsCandidate(it: ScanItem): boolean {
   return it.item_type === "process" && it.process_control.category === "gaming_fps_impact";
 }
 
-export function FpsOptimizerPanel({ scan, scanning, onRunScan }: Props) {
-  const [inventory, setInventory] = useState<ProcessInventoryResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export function FpsOptimizerPanel({ scan, scanning, onRunScan, onNavigate }: Props) {
+  const { inventory, loading, error, noScan, reload: loadInventory } = useProcessInventory(scan);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmExplicitSelection, setConfirmExplicitSelection] = useState(false);
@@ -28,25 +30,6 @@ export function FpsOptimizerPanel({ scan, scanning, onRunScan }: Props) {
   const [previewResult, setPreviewResult] = useState<ProcessPreviewEndResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-
-  const loadInventory = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await client.getProcesses();
-      setInventory(res);
-    } catch (e) {
-      setError(parseApiError(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadInventory();
-    // Reload whenever a new scan lands (App.tsx's `scan` reference changes).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scan]);
 
   const candidates: ScanItem[] = inventory?.items.filter(isFpsCandidate) ?? [];
 
@@ -85,7 +68,6 @@ export function FpsOptimizerPanel({ scan, scanning, onRunScan }: Props) {
     }
   }
 
-  const noScan = !loading && inventory && !!inventory.message;
   const selectableCount = candidates.filter((it) => canPreviewProcess(it, confirmExplicitSelection)).length;
   const memoryMb = candidates.reduce((sum, it) => sum + (it.metrics?.memory_mb ?? 0), 0);
   const policyCounts: Record<string, number> = {};
@@ -107,6 +89,8 @@ export function FpsOptimizerPanel({ scan, scanning, onRunScan }: Props) {
             OpenCleaner will not touch essential, unknown, security, driver, browser, or shell processes
             automatically.
           </p>
+          <p className="muted">{PREVIEW_ONLY_NOTICE}</p>
+          <SurfaceCrossLinks current="fps" onNavigate={onNavigate} />
         </div>
         <div className="dashboard-actions">
           <button type="button" disabled={loading} onClick={() => void loadInventory()}>

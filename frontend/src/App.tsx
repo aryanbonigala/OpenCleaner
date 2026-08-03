@@ -327,14 +327,21 @@ export default function App() {
 
       <main className="flow-main">
         {view === "processes" ? (
-          <ProcessControlDashboard scan={scan} scanning={scanning} onRunScan={() => void runScan("processes")} />
+          <ProcessControlDashboard
+            scan={scan}
+            scanning={scanning}
+            onRunScan={() => void runScan("processes")}
+            onNavigate={setView}
+          />
         ) : null}
 
         {view === "fps" ? (
-          <FpsOptimizerPanel scan={scan} scanning={scanning} onRunScan={() => void runScan("fps")} />
+          <FpsOptimizerPanel scan={scan} scanning={scanning} onRunScan={() => void runScan("fps")} onNavigate={setView} />
         ) : null}
 
-        {view === "chat" ? <ChatPreviewPanel onRunScan={() => void runScan("chat")} /> : null}
+        {view === "chat" ? (
+          <ChatPreviewPanel scan={scan} onRunScan={() => void runScan("chat")} onNavigate={setView} />
+        ) : null}
 
         {view === "dashboard" ? (
           <Dashboard

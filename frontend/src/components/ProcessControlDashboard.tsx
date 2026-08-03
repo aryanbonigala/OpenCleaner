@@ -1,28 +1,31 @@
-import { useCallback, useEffect, useState } from "react";
-import type { ProcessDetailResponse, ProcessInventoryResponse, ProcessPreviewEndResponse, ScanItem, ScanResult } from "../api";
+import { useEffect, useState } from "react";
+import type { ProcessDetailResponse, ProcessPreviewEndResponse, ScanItem, ScanResult } from "../api";
 import { client, parseApiError } from "../api";
+import { PREVIEW_ONLY_NOTICE } from "../copy";
 import { canPreviewProcess } from "../processSelection";
 import { pidOf } from "../processItem";
+import { useProcessInventory } from "../useProcessInventory";
 import { EmptyState } from "./EmptyState";
 import { ProcessCategorySummary } from "./ProcessCategorySummary";
 import { ProcessControlDetails } from "./ProcessControlDetails";
 import { ProcessControlTable } from "./ProcessControlTable";
 import { ProcessPreviewPanel } from "./ProcessPreviewPanel";
+import { SurfaceCrossLinks, type Surface } from "./SurfaceCrossLinks";
 
 type Props = {
   scan: ScanResult | null;
   scanning: boolean;
   onRunScan: () => void;
+  onNavigate?: (target: Surface) => void;
 };
 
-export function ProcessControlDashboard({ scan, scanning, onRunScan }: Props) {
-  const [inventory, setInventory] = useState<ProcessInventoryResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export function ProcessControlDashboard({ scan, scanning, onRunScan, onNavigate }: Props) {
+  const { inventory, loading, error, noScan, reload: loadInventory } = useProcessInventory(scan);
 
   const [selectedItem, setSelectedItem] = useState<ScanItem | null>(null);
   const [detail, setDetail] = useState<ProcessDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmExplicitSelection, setConfirmExplicitSelection] = useState(false);
@@ -30,25 +33,6 @@ export function ProcessControlDashboard({ scan, scanning, onRunScan }: Props) {
   const [previewResult, setPreviewResult] = useState<ProcessPreviewEndResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-
-  const loadInventory = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await client.getProcesses();
-      setInventory(res);
-    } catch (e) {
-      setError(parseApiError(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadInventory();
-    // Reload whenever a new scan lands (App.tsx's `scan` reference changes).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scan]);
 
   useEffect(() => {
     if (!inventory) return;
@@ -75,6 +59,7 @@ export function ProcessControlDashboard({ scan, scanning, onRunScan }: Props) {
   async function openItem(item: ScanItem) {
     setSelectedItem(item);
     setDetail(null);
+    setDetailError(null);
     const pid = pidOf(item);
     if (item.item_type !== "process" || pid === null) return;
     setDetailLoading(true);
@@ -82,7 +67,7 @@ export function ProcessControlDashboard({ scan, scanning, onRunScan }: Props) {
       const res = await client.getProcessByPid(pid);
       setDetail(res);
     } catch (e) {
-      setError(parseApiError(e));
+      setDetailError(parseApiError(e));
     } finally {
       setDetailLoading(false);
     }
@@ -102,14 +87,14 @@ export function ProcessControlDashboard({ scan, scanning, onRunScan }: Props) {
     }
   }
 
-  const noScan = !loading && inventory && !!inventory.message;
-
   return (
     <div className="process-dashboard">
       <div className="panel-header process-dashboard-header">
         <div>
           <h2>Process Control</h2>
           <p className="muted">Understand what&rsquo;s running and what OpenCleaner will refuse to touch.</p>
+          <p className="muted">{PREVIEW_ONLY_NOTICE}</p>
+          <SurfaceCrossLinks current="processes" onNavigate={onNavigate} />
         </div>
         <div className="dashboard-actions">
           <button type="button" disabled={loading} onClick={() => void loadInventory()}>
@@ -121,7 +106,11 @@ export function ProcessControlDashboard({ scan, scanning, onRunScan }: Props) {
         </div>
       </div>
 
-      {error ? <p className="warn-inline" style={{ padding: "0 12px" }}>{error}</p> : null}
+      {error || detailError ? (
+        <p className="warn-inline" style={{ padding: "0 12px" }}>
+          {error || detailError}
+        </p>
+      ) : null}
 
       {noScan ? (
         <EmptyState

@@ -698,6 +698,22 @@ tr.row-unknown-svc {
   margin-top: 8px;
 }
 
+.surface-cross-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.surface-cross-link {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
 @media (max-width: 1100px) {
   .layout {
     grid-template-columns: 1fr;

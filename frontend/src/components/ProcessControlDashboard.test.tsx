@@ -202,4 +202,16 @@ describe("ProcessControlDashboard", () => {
     expect(await screen.findByText("Preview only. No process was ended, suspended, or modified.")).toBeTruthy();
     expect(endCalled).toBe(false);
   });
+
+  it("renders cross-links to the other two surfaces", async () => {
+    const onNavigate = vi.fn();
+    render(<ProcessControlDashboard scan={null} scanning={false} onRunScan={vi.fn()} onNavigate={onNavigate} />);
+    await screen.findByText("Process Control");
+
+    fireEvent.click(screen.getByText("Preview gaming session →"));
+    expect(onNavigate).toHaveBeenCalledWith("fps");
+
+    fireEvent.click(screen.getByText("Ask what can be previewed →"));
+    expect(onNavigate).toHaveBeenCalledWith("chat");
+  });
 });

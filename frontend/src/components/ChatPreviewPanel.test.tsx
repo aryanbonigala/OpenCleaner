@@ -166,9 +166,18 @@ function jsonResponse(data: unknown) {
 let fetchMock: ReturnType<typeof vi.fn>;
 let endCalled: boolean;
 
-function installFetchMock(opts: { noScan?: boolean } = {}) {
+function installFetchMock(opts: { noScan?: boolean; noInventory?: boolean } = {}) {
   endCalled = false;
   fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith("/api/processes") && (!init || init.method === undefined)) {
+      return Promise.resolve(
+        jsonResponse(
+          opts.noInventory
+            ? { items_count: 0, counts: {}, items: [], warnings: [], message: "No scan available yet. Run a scan first (POST /api/scan)." }
+            : { items_count: 0, counts: {}, items: [], warnings: [], message: null }
+        )
+      );
+    }
     if (url.endsWith("/api/chat/command-preview")) {
       const body = JSON.parse(String(init?.body ?? "{}"));
       const message = String(body.message ?? "");
@@ -312,5 +321,27 @@ describe("ChatPreviewPanel", () => {
     for (const label of dangerousLabels) {
       expect(screen.queryByRole("button", { name: label })).toBeNull();
     }
+  });
+
+  it("shows a proactive no-scan empty state before any message is sent", async () => {
+    installFetchMock({ noInventory: true });
+    const onRunScan = vi.fn();
+    render(<ChatPreviewPanel onRunScan={onRunScan} scan={null} />);
+
+    expect(await screen.findByText("Run a scan first to build a process inventory.")).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    fireEvent.click(screen.getByText("Run scan"));
+    expect(onRunScan).toHaveBeenCalled();
+  });
+
+  it("renders cross-links to the other two surfaces", () => {
+    const onNavigate = vi.fn();
+    render(<ChatPreviewPanel onRunScan={vi.fn()} onNavigate={onNavigate} />);
+
+    fireEvent.click(screen.getByText("Review full inventory →"));
+    expect(onNavigate).toHaveBeenCalledWith("processes");
+
+    fireEvent.click(screen.getByText("Preview gaming session →"));
+    expect(onNavigate).toHaveBeenCalledWith("fps");
   });
 });
