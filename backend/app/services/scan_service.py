@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 from typing import Any
 
@@ -142,6 +143,8 @@ async def run_full_scan(mode: PermissionMode) -> ScanResult:
 
 
 async def _run_full_scan_inner(mode: PermissionMode) -> ScanResult:
+    started_at = utc_now_iso()
+    started_monotonic = time.monotonic()
     prefs = await load_settings()
     await apply_quarantine_retention(prefs)
     allow, block = await _load_lists()
@@ -155,6 +158,9 @@ async def _run_full_scan_inner(mode: PermissionMode) -> ScanResult:
     for it in finalized:
         buckets[it.bucket.value] = buckets.get(it.bucket.value, 0) + 1
 
+    finished_at = utc_now_iso()
+    duration_ms = round((time.monotonic() - started_monotonic) * 1000)
+
     summary = ScanSummary(
         scan_id=scan_id,
         scan_schema_version=SCAN_SCHEMA_VERSION,
@@ -163,8 +169,12 @@ async def _run_full_scan_inner(mode: PermissionMode) -> ScanResult:
         items_count=len(finalized),
         buckets=buckets,
         disk_usage_sample=_disk_snapshot(),
-        generated_at=utc_now_iso(),
+        generated_at=finished_at,
         scanner_warnings=warnings,
+        started_at=started_at,
+        finished_at=finished_at,
+        duration_ms=duration_ms,
+        status="partial_success" if warnings else "success",
     )
 
     await _persist_scan(scan_id, platform, mode.value, finalized, summary)
@@ -348,6 +358,10 @@ async def latest_scan_from_db() -> ScanResult | None:
             disk_usage_sample=summary_dict.get("disk_usage_sample"),
             generated_at=summary_dict.get("generated_at"),
             scanner_warnings=list(summary_dict.get("scanner_warnings", [])),
+            started_at=summary_dict.get("started_at"),
+            finished_at=summary_dict.get("finished_at"),
+            duration_ms=summary_dict.get("duration_ms"),
+            status=summary_dict.get("status") or "success",
         )
         return ScanResult(summary=summary, items=restored)
 

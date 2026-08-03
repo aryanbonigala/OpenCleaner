@@ -113,11 +113,15 @@ Last verified against commit `a3a31b2`.
 - Full-repo `ruff check` has pre-existing unrelated errors (unused imports in
   `app/main.py`, `app/pipeline/*`, `app/engine/*`, some tests). Do not fix them incidentally.
 - `stable_path_id` does not resolve symlinks by design; a moved file correctly gets a new id.
-- `ScanSummary` has no per-scan `duration`/`status` field and `ScanResult` carries no
-  `api_version` — flagged in `docs/VERSION_API_CONTRACT_AUDIT.md` as the next v0.1.0/v0.1.1 gap.
+- `ScanSummary` now carries `started_at`/`finished_at`/`duration_ms`/`status`
+  (`success`/`partial_success`, derived from `scanner_warnings`; `failed` is reserved
+  and never emitted) and `ScanResult` carries `api_version` — closes the gap tracked in
+  `docs/VERSION_API_CONTRACT_AUDIT.md`.
 
 ## Superseded facts
 
 - ~~`scan_items` is keyed on `id` alone~~ — superseded by the composite key `(scan_id, id)`.
+- ~~`ScanSummary` has no per-scan `duration`/`status` field and `ScanResult` carries no
+  `api_version`~~ — superseded; both fields now exist (see above).
 - ~~Large-file ids use the builtin `hash()`~~ — superseded by blake2b via `stable_path_id`.
 - ~~File ids carry a sibling index suffix (`dl-report.pdf-3`)~~ — superseded by path-derived hashes.

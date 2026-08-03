@@ -2,6 +2,13 @@
 
 Audited against commit `018f09b`. Read-only audit; no code changed.
 
+**Update:** the "Recommended next implementation task" below has been implemented.
+`ScanResult` now carries `api_version` (defaults to `API_VERSION`), and `ScanSummary`
+now carries `started_at`, `finished_at`, `duration_ms`, and `status`
+(`"success" | "partial_success" | "failed"`, derived from `scanner_warnings`;
+`"failed"` remains reserved — no code path returns a `ScanResult` on total scan
+failure). See `backend/tests/test_scan_response_contract.py`.
+
 ## Findings
 
 1. **Central version constant** — Yes. `backend/app/version.py` defines `APP_VERSION`

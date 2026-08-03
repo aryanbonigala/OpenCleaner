@@ -164,6 +164,10 @@ export interface ScanSummary {
   disk_usage_sample?: Record<string, unknown> | null;
   generated_at?: string | null;
   scanner_warnings?: string[];
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+  status?: "success" | "partial_success" | "failed";
 }
 
 export interface CleanupPreviewItem {
@@ -211,6 +215,7 @@ export interface CleanupExecuteResult {
 export interface ScanResult {
   summary: ScanSummary;
   items: ScanItem[];
+  api_version?: string;
 }
 
 export type CleanupMode = "quarantine_only" | "manual_permanent_delete_only";

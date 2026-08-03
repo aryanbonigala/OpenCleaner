@@ -13,6 +13,7 @@ from app.models.enums import (
     RiskBucket,
 )
 from app.models.scan_item import SCAN_SCHEMA_VERSION, ProcessControl, ScanItem
+from app.version import API_VERSION
 
 # Re-export enums for backward compatibility
 __all__ = [
@@ -75,11 +76,18 @@ class ScanSummary(BaseModel):
     disk_usage_sample: dict[str, Any] | None = None
     generated_at: str | None = None
     scanner_warnings: list[str] = Field(default_factory=list)
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    # "failed" is reserved: a scan that fails outright never produces a ScanResult
+    # today, so this status is never emitted yet.
+    status: Literal["success", "partial_success", "failed"] = "success"
 
 
 class ScanResult(BaseModel):
     summary: ScanSummary
     items: list[ScanItem]
+    api_version: str = API_VERSION
 
 
 class CleanupPreviewRequest(BaseModel):
