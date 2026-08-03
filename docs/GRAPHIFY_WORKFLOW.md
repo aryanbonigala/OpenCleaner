@@ -16,6 +16,20 @@ decided. The repo is the source of truth for what the code actually does.
 - Curated project facts live in `docs/PROJECT_GRAPH_FACTS.md` and are extracted into the graph.
 - `.graphifyignore` keeps tooling noise (`.claude/`, `.serena/`, build output) out of the graph.
 
+## Setup (once per clone)
+
+The graph and the assistant skill are machine-local and deliberately not committed —
+the generated hooks embed absolute paths that only work on the machine that made them.
+
+```bash
+uv tool install "graphifyy[sql]"   # the [sql] extra is required, see below
+graphify install --project         # registers the /graphify skill for this repo
+```
+
+Then build the graph once: run `/graphify .` from your AI assistant. Without the `[sql]`
+extra, `backend/sql/schema.sql` silently contributes nothing and the DB tables are
+missing from the graph.
+
 ## 2. When to query Graphify
 
 Query it when you need orientation:

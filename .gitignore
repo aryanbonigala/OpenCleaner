@@ -11,3 +11,8 @@ target/
 
 # graphify local knowledge graph (build output, machine-local)
 graphify-out/
+
+# Local AI-assistant config: machine-specific hook paths and a nested worktree.
+# Set up graphify per-clone with: graphify install --project
+.claude/
+.serena/
