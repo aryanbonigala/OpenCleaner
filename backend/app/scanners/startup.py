@@ -99,19 +99,23 @@ def _darwin_launch_agents() -> list[ScoredItem]:
     items: list[ScoredItem] = []
     home = Path.home()
     dirs = [
-        home / "Library" / "LaunchAgents",
-        Path("/Library/LaunchAgents"),
-        Path("/Library/LaunchDaemons"),
+        (home / "Library" / "LaunchAgents", "user-agents"),
+        (Path("/Library/LaunchAgents"), "system-agents"),
+        (Path("/Library/LaunchDaemons"), "system-daemons"),
     ]
-    for d in dirs:
+    for d, scope in dirs:
         if not d.exists():
             continue
-        def on_file(p: Path) -> None:
+
+        def on_file(p: Path, scope: str = scope) -> None:
+            # The same plist stem (e.g. a vendor's bundle id) can legitimately appear in more
+            # than one of these directories at once — the scope keeps `id` unique per location
+            # instead of colliding on the scan_items.id primary key.
             if p.suffix.lower() != ".plist":
                 return
             items.append(
                 ScoredItem(
-                    id=f"launchd-{p.stem}",
+                    id=f"launchd-{scope}-{p.stem}",
                     category="startup",
                     item_type=ItemType.startup_entry,
                     name=p.stem,
