@@ -17,6 +17,7 @@ import { CleanupSummary } from "./components/CleanupSummary";
 import { Dashboard } from "./components/Dashboard";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { FindingDetails } from "./components/FindingDetails";
+import { FpsOptimizerPanel } from "./components/FpsOptimizerPanel";
 import { ProcessControlDashboard } from "./components/ProcessControlDashboard";
 import { QuarantineManager, QuarantineEntry } from "./components/QuarantineManager";
 import { ScanProgress } from "./components/ScanProgress";
@@ -26,6 +27,7 @@ import { defaultSelectedIds } from "./selection";
 
 type View =
   | "processes"
+  | "fps"
   | "dashboard"
   | "results"
   | "cleanup_review"
@@ -290,6 +292,9 @@ export default function App() {
           <button type="button" disabled={navDisabled} className={view === "processes" ? "active" : ""} onClick={() => setView("processes")}>
             Process Control
           </button>
+          <button type="button" disabled={navDisabled} className={view === "fps" ? "active" : ""} onClick={() => setView("fps")}>
+            FPS Optimizer
+          </button>
           <button type="button" disabled={navDisabled} className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}>
             Dashboard
           </button>
@@ -318,6 +323,10 @@ export default function App() {
       <main className="flow-main">
         {view === "processes" ? (
           <ProcessControlDashboard scan={scan} scanning={scanning} onRunScan={() => void runScan("processes")} />
+        ) : null}
+
+        {view === "fps" ? (
+          <FpsOptimizerPanel scan={scan} scanning={scanning} onRunScan={() => void runScan("fps")} />
         ) : null}
 
         {view === "dashboard" ? (
