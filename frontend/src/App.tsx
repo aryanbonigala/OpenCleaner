@@ -11,6 +11,7 @@ import {
   client,
   parseApiError,
 } from "./api";
+import { ChatPreviewPanel } from "./components/ChatPreviewPanel";
 import { CleanupProgress } from "./components/CleanupProgress";
 import { CleanupReview } from "./components/CleanupReview";
 import { CleanupSummary } from "./components/CleanupSummary";
@@ -28,6 +29,7 @@ import { defaultSelectedIds } from "./selection";
 type View =
   | "processes"
   | "fps"
+  | "chat"
   | "dashboard"
   | "results"
   | "cleanup_review"
@@ -295,6 +297,9 @@ export default function App() {
           <button type="button" disabled={navDisabled} className={view === "fps" ? "active" : ""} onClick={() => setView("fps")}>
             FPS Optimizer
           </button>
+          <button type="button" disabled={navDisabled} className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}>
+            Ask OpenCleaner
+          </button>
           <button type="button" disabled={navDisabled} className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}>
             Dashboard
           </button>
@@ -328,6 +333,8 @@ export default function App() {
         {view === "fps" ? (
           <FpsOptimizerPanel scan={scan} scanning={scanning} onRunScan={() => void runScan("fps")} />
         ) : null}
+
+        {view === "chat" ? <ChatPreviewPanel onRunScan={() => void runScan("chat")} /> : null}
 
         {view === "dashboard" ? (
           <Dashboard

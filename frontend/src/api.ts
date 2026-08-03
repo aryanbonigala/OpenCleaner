@@ -303,6 +303,62 @@ export interface ProcessPreviewEndResponse {
   disclaimer: string;
 }
 
+export interface ChatCommandPreviewRequest {
+  message: string;
+  confirm_explicit_selection?: boolean;
+}
+
+export type ChatCommandPreviewItemStatus = "would_allow" | "blocked" | "informational";
+
+export interface ChatCommandPreviewItem {
+  id: string;
+  display_name: string;
+  pid?: number | null;
+  item_type: ItemType;
+  category: ProcessControlCategory;
+  action_policy: ActionPolicy;
+  status: ChatCommandPreviewItemStatus;
+  reason: string;
+  fps_impact?: string | null;
+  user_visible_summary?: string | null;
+  blocked_reason?: string | null;
+}
+
+export type ChatCommandPreviewActionKind =
+  | "run_scan"
+  | "review_preview"
+  | "confirm_explicit_selection"
+  | "open_process_detail"
+  | "none";
+
+export interface ChatCommandPreviewAction {
+  kind: ChatCommandPreviewActionKind;
+  label: string;
+  endpoint?: string | null;
+  item_ids: string[];
+}
+
+export type ChatCommandPreviewIntent =
+  | "gaming_safety_preview"
+  | "safe_suspend_preview"
+  | "explain_process"
+  | "unknown_inventory"
+  | "protected_inventory"
+  | "help";
+
+export interface ChatCommandPreviewResponse {
+  intent: ChatCommandPreviewIntent;
+  message: string;
+  summary: string;
+  items: ChatCommandPreviewItem[];
+  blocked: ChatCommandPreviewItem[];
+  preview?: ProcessPreviewEndResponse | null;
+  detail?: Record<string, unknown> | null;
+  actions: ChatCommandPreviewAction[];
+  warnings: string[];
+  disclaimer: string;
+}
+
 export function parseApiError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   try {
@@ -411,4 +467,9 @@ export const client = {
       telemetry: string;
     }>("/api/safety/summary"),
   exportReportUrl: (fmt: "json" | "md") => `${API_BASE}/api/export/report?fmt=${encodeURIComponent(fmt)}`,
+  previewChatCommand: (message: string, confirm_explicit_selection = false) =>
+    api<ChatCommandPreviewResponse>("/api/chat/command-preview", {
+      method: "POST",
+      body: JSON.stringify({ message, confirm_explicit_selection }),
+    }),
 };

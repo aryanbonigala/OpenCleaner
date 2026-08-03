@@ -712,3 +712,143 @@ tr.row-unknown-svc {
     max-height: none;
   }
 }
+
+/* Chat Preview */
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+
+.chat-header p {
+  margin: 4px 0 0;
+}
+
+.chat-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px;
+}
+
+.chat-textarea {
+  width: 100%;
+  resize: vertical;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.chat-actions-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat-suggested-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.chat-prompt-chip {
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+.chat-safety-footer {
+  margin: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(12, 15, 20, 0.35);
+}
+
+.chat-safety-footer .footer-note {
+  padding: 6px 12px;
+}
+
+.chat-response {
+  margin: 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-intent {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+}
+
+.chat-summary {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.chat-warnings {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.chat-item-list h4 {
+  margin: 4px 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.chat-item-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-item-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.chat-item-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-preview-result {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.chat-preview-result h4 {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+
+.chat-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat-action-link {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.chat-action-info {
+  padding: 4px 0;
+}
