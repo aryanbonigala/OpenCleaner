@@ -67,7 +67,7 @@ the binary; nothing places it next to the Tauri bundle or launches it.
 | Platform | Status | Notes |
 |---|---|---|
 | macOS (arm64) | **Verified** | Re-verified at commit `5f36cc4`, 2026-08-03. `scripts/bundle_backend.sh` built `backend/dist/opencleaner-backend` via PyInstaller 6.x / Python 3.14 (venv). `opencleaner-backend --help` printed argparse usage and exited 0 without binding a port. |
-| Linux | **Blocked** | Docker Desktop 28.3.2 CLI is installed but the daemon is not running (`docker info` fails: "Cannot connect to the Docker daemon"). Starting/installing the daemon is out of scope for this verification; no native Linux environment is available either. Run `scripts/bundle_backend.sh` on a Linux host or in a running Linux container to verify — the script itself needs no changes. |
+| Linux | **Verified** | Verified at commit `411b160`, 2026-08-03, in a `python:3.12-slim` (linux/arm64) container via Docker Desktop 28.3.2 (daemon started via `open -a Docker`). Container installed `binutils` (needed by PyInstaller's Linux bootloader to append the archive to the ELF section; absent from the slim base image) then ran `scripts/bundle_backend.sh` unmodified, building `backend/dist/opencleaner-backend` via PyInstaller 6.x / Python 3.12. `opencleaner-backend --help` printed argparse usage and exited 0 without binding a port. Container-local `.venv`, `build/`, `dist/`, and `.spec`/`.egg-info` outputs were discarded with the container; nothing was committed. |
 | Windows | **Blocked** | No Windows build environment (VM, physical machine, or CI runner) is available in this session. Wine and cross-compilation are explicitly unsupported for PyInstaller output, so this must be verified on real Windows. |
 
 ## Windows build notes
@@ -97,7 +97,7 @@ the binary; nothing places it next to the Tauri bundle or launches it.
 
 ## macOS / Linux
 
-- Same sidecar idea: ship a `opencleaner-backend` binary. `scripts/bundle_backend.sh` (PyInstaller) is verified on macOS (see above); Linux build is untested but should work with the same script since PyInstaller supports it.
+- Same sidecar idea: ship a `opencleaner-backend` binary. `scripts/bundle_backend.sh` (PyInstaller) is verified on both macOS (native) and Linux (container, see above).
 - macOS: Gatekeeper / notarization if you distribute outside your org; use hardened runtime per Apple docs.
 - Linux: prefer distro-neutral tarballs or Flatpak; keep port on loopback.
 
@@ -105,7 +105,7 @@ the binary; nothing places it next to the Tauri bundle or launches it.
 
 - `scripts/run_backend.sh` — developer backend runner.
 - `backend/app/sidecar.py` — importable, testable entrypoint (`main()`) that serves the FastAPI app via uvicorn on `127.0.0.1:8742` by default; the PyInstaller build target. Importing it never starts a server.
-- `scripts/bundle_backend.sh` — **real build script**, verified on macOS: builds `backend/dist/opencleaner-backend` via PyInstaller against `app/sidecar.py`. See "Building the backend sidecar binary" above.
+- `scripts/bundle_backend.sh` — **real build script**, verified on macOS (native) and Linux (container): builds `backend/dist/opencleaner-backend` via PyInstaller against `app/sidecar.py`. See "Building the backend sidecar binary" above.
 
 ## Known limitations
 
