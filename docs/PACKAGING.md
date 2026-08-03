@@ -81,16 +81,22 @@ resolution updated accordingly — future work. Verified on macOS only;
 Windows and Linux spawn are unverified (Linux may work as unmodified generic
 Rust, but this has not been tested).
 
-Known gap found while smoke-testing this prototype: the PyInstaller
-`--onefile` binary produced by `bundle_backend.sh` fails at runtime with
-`ERROR: Could not import module "app.main"` when uvicorn loads
-`"app.main:app"` by string inside the frozen binary — reproduced even when
-running the binary directly (not through Tauri), from multiple working
-directories. `--help` still exits 0 (verified above), but actual server
-startup via the frozen binary is unverified/broken; the manual dev workflow
-(`scripts/run_backend.sh`, unfrozen `uvicorn`) is unaffected. This is a
-PyInstaller/uvicorn packaging issue in `bundle_backend.sh`/`sidecar.py`, not
-in the Rust spawn logic — out of scope for this change, left for a follow-up.
+**Fixed**: the PyInstaller `--onefile` binary previously failed at runtime with
+`ERROR: Could not import module "app.main"`, because `uvicorn.run("app.main:app", ...)`
+resolves that string via module import machinery that PyInstaller's frozen
+importer doesn't support. `backend/app/sidecar.py` now imports the FastAPI
+`app` object directly inside `main()` (`from app.main import app`) and passes
+the object to `uvicorn.run(app, ...)` instead of the string form; importing
+`app.sidecar` on its own still never imports `app.main` or starts a server.
+A second gap surfaced once the import fixed itself: `app/db.py` locates
+`sql/schema.sql` relative to `__file__` at runtime, and PyInstaller does not
+bundle non-Python data files by default, so `init_db` silently found no
+schema file and every query failed with `no such table`.
+`scripts/bundle_backend.sh` now passes `--add-data "sql/schema.sql:sql"` to
+PyInstaller so the schema file is present at the same relative path inside
+the frozen bundle. With both fixes, `backend/dist/opencleaner-backend`
+started directly (bounded run, `OPENCLEANER_USE_MOCK=1`, isolated
+`OPENCLEANER_DATA_DIR`) now serves `GET /health` with `200 OK` on macOS.
 
 Tauri sidecar spawning is otherwise still not implemented for packaged
 builds — this script only produces the binary; nothing places it next to the
@@ -100,7 +106,7 @@ Tauri bundle or launches it there.
 
 | Platform | Status | Notes |
 |---|---|---|
-| macOS (arm64) | **Verified** | Re-verified at commit `5f36cc4`, 2026-08-03. `scripts/bundle_backend.sh` built `backend/dist/opencleaner-backend` via PyInstaller 6.x / Python 3.14 (venv). `opencleaner-backend --help` printed argparse usage and exited 0 without binding a port. |
+| macOS (arm64) | **Verified** | Re-verified 2026-08-03 (this fix). `scripts/bundle_backend.sh` built `backend/dist/opencleaner-backend` via PyInstaller 6.x / Python 3.14 (venv), including the `app.main` object-import fix and bundled `sql/schema.sql`. `opencleaner-backend --help` exits 0; running the binary directly now also serves `GET /health` with `200 OK`. |
 | Linux | **Verified** | Verified at commit `411b160`, 2026-08-03, in a `python:3.12-slim` (linux/arm64) container via Docker Desktop 28.3.2 (daemon started via `open -a Docker`). Container installed `binutils` (needed by PyInstaller's Linux bootloader to append the archive to the ELF section; absent from the slim base image) then ran `scripts/bundle_backend.sh` unmodified, building `backend/dist/opencleaner-backend` via PyInstaller 6.x / Python 3.12. `opencleaner-backend --help` printed argparse usage and exited 0 without binding a port. Container-local `.venv`, `build/`, `dist/`, and `.spec`/`.egg-info` outputs were discarded with the container; nothing was committed. |
 | Windows | **Blocked** | No Windows build environment (VM, physical machine, or CI runner) is available in this session. Wine and cross-compilation are explicitly unsupported for PyInstaller output, so this must be verified on real Windows. |
 

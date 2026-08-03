@@ -16,14 +16,26 @@ def test_import_does_not_start_server():
 
 
 def test_main_uses_config_defaults():
+    from app.main import app as fastapi_app
+
     settings = get_settings()
     with patch("app.sidecar.uvicorn.run") as mock_run:
         sidecar.main([])
-    mock_run.assert_called_once_with("app.main:app", host=settings.host, port=settings.port)
+    mock_run.assert_called_once_with(fastapi_app, host=settings.host, port=settings.port)
     assert settings.host == "127.0.0.1"
 
 
 def test_main_accepts_host_and_port_overrides():
+    from app.main import app as fastapi_app
+
     with patch("app.sidecar.uvicorn.run") as mock_run:
         sidecar.main(["--host", "0.0.0.0", "--port", "9999"])
-    mock_run.assert_called_once_with("app.main:app", host="0.0.0.0", port=9999)
+    mock_run.assert_called_once_with(fastapi_app, host="0.0.0.0", port=9999)
+
+
+def test_import_does_not_import_app_main():
+    import sys
+
+    sys.modules.pop("app.main", None)
+    importlib.reload(sidecar)
+    assert "app.main" not in sys.modules

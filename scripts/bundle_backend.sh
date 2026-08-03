@@ -22,6 +22,7 @@ pip install -q -e ".[packaging]"
 rm -rf build dist opencleaner-backend.spec
 pyinstaller --onefile --name opencleaner-backend \
   --paths "$BACKEND" \
+  --add-data "sql/schema.sql:sql" \
   --hidden-import uvicorn.logging \
   --hidden-import uvicorn.loops.auto \
   --hidden-import uvicorn.protocols.http.auto \

@@ -196,18 +196,32 @@ tested readiness primitive to call instead of inventing one under bundling press
   bounded health-wait does not hang when the child dies immediately (see
   gap below) — it times out and logs, and the frontend readiness gate still
   reports "backend not reachable" independently.
-- **Unverified**: killing a child that is still alive and healthy at exit
-  time (the only reproducible smoke run had the frozen backend binary exit
-  immediately on its own due to the gap below, so there was nothing alive
-  left to kill by the time `ExitRequested` fired).
-- **Gap found, out of scope to fix here**: `backend/dist/opencleaner-backend`
-  (built via `bundle_backend.sh`) fails at actual startup —
-  `uvicorn.run("app.main:app", ...)` cannot import `app.main` inside the
-  frozen binary (`ERROR: Could not import module "app.main"`), reproduced
-  running the binary directly outside Tauri. `--help` still exits 0 as
-  previously verified (argparse only, never reaches `uvicorn.run`). This
-  means the macOS-verified checkbox in §"Platform build matrix" above only
-  covers `--help`, not real server startup — worth re-auditing there
-  separately. Not touched in this change: fixing it means editing
-  `backend/app/sidecar.py` or the PyInstaller invocation, which is backend
-  packaging work outside this task's Rust/Tauri scope.
+- **Fixed (this task)**: `backend/dist/opencleaner-backend` previously
+  failed at actual startup — `uvicorn.run("app.main:app", ...)` could not
+  import `app.main` inside the frozen binary (`ERROR: Could not import
+  module "app.main"`). `backend/app/sidecar.py` now passes the imported
+  FastAPI `app` object to `uvicorn.run()` instead of the module-path string.
+  A second, previously-undiscovered gap then surfaced: `app/db.py` reads
+  `sql/schema.sql` relative to `__file__`, which PyInstaller does not bundle
+  by default, so `init_db` found no schema and every DB query failed.
+  `scripts/bundle_backend.sh` now adds `--add-data "sql/schema.sql:sql"`.
+  Verified: `pytest tests/test_sidecar_entrypoint.py -q` (4 passed,
+  including a new "importing sidecar never imports app.main" test), the
+  safe import smoke (`OPENCLEANER_USE_MOCK=1 python -c "import app.sidecar;
+  import app.main"`), a direct run of the rebuilt frozen binary (bounded,
+  isolated `OPENCLEANER_DATA_DIR`) returning `200 OK` with
+  `component: "opencleaner-backend"` from `GET /health`, and a full Tauri
+  release-binary spawn smoke — the frozen binary came up under the Rust
+  spawn logic and `/health` was reachable end-to-end.
+- **New gap found during this task's Tauri spawn smoke — unverified/likely
+  broken**: sending the Tauri release binary a plain `SIGTERM` (simulating a
+  killed/force-quit process, as opposed to a GUI-driven window close) did
+  **not** terminate the spawned backend child; it was left running and had
+  to be cleaned up manually. Tauri's `RunEvent::ExitRequested` appears to be
+  driven by the windowing event loop (window close / OS "Quit"), not by
+  process-level signals, so a hard kill of the parent orphans the child.
+  This was flagged as unverified in the entry above (§11) before this task;
+  it is now reproduced and confirmed as a real gap, not just an untested
+  path. Out of scope to fix here — would need a `SIGTERM`/`SIGINT` handler
+  in `main.rs` that also kills the tracked child, which is Rust spawn-logic
+  work, not backend packaging.

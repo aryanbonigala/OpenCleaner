@@ -20,7 +20,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--host", default=settings.host, help=f"default: {settings.host}")
     parser.add_argument("--port", type=int, default=settings.port, help=f"default: {settings.port}")
     args = parser.parse_args(argv)
-    uvicorn.run("app.main:app", host=args.host, port=args.port)
+    from app.main import app
+
+    uvicorn.run(app, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":
