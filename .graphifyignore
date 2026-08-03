@@ -1,0 +1,20 @@
+# Keep the knowledge graph about OpenCleaner, not about the tooling around it.
+# .graphifyignore can only ever exclude more than .gitignore, never re-include.
+
+# graphify's own skill manuals and per-project config. Extracting these puts
+# graphify's documentation into OpenCleaner's graph, where every future query
+# has to compete with it.
+.claude/
+
+# Serena's project metadata — editor tooling state, no domain knowledge.
+.serena/
+
+# graphify's own build output.
+graphify-out/
+
+# Vendored/build artifacts that carry no design intent.
+frontend/dist/
+frontend/node_modules/
+backend/.venv/
+**/__pycache__/
+*.egg-info/
