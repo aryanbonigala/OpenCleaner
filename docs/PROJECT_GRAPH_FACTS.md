@@ -117,6 +117,9 @@ Last verified against commit `a3a31b2`.
   (`success`/`partial_success`, derived from `scanner_warnings`; `failed` is reserved
   and never emitted) and `ScanResult` carries `api_version` — closes the gap tracked in
   `docs/VERSION_API_CONTRACT_AUDIT.md`.
+- Fresh-clone packaging/dev-readiness state (setup, dev/build/test flow, undocumented
+  `OPENCLEANER_DATA_DIR` override, no pinned Node version) is audited in
+  `docs/PACKAGING_READINESS_AUDIT.md`.
 
 ## Superseded facts
 
