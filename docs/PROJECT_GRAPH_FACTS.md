@@ -10,7 +10,7 @@ graphify knowledge graph and retrieved by future agents without rereading the re
 - Never add secrets, API keys, tokens, personal data, or machine-specific paths.
 - Superseded facts move to **Superseded facts** at the bottom rather than being deleted.
 
-Last verified against commit `087cf8a`.
+Last verified against commit `a3a31b2`.
 
 ---
 
@@ -35,6 +35,8 @@ Last verified against commit `087cf8a`.
 - **process inventory API** — read-only process listing derived from the newest scan.
 - **chat command preview API** — deterministic local parser over the newest scan.
 - **frontend Process Control dashboard** — main UI surface for process review.
+- **frontend Chat Preview UI** — "Ask OpenCleaner" panel; sends chat text to the chat command
+  preview API and renders the response. Preview-only, no execution actions.
 - **FPS Optimizer panel** — gaming-oriented view over FPS-impacting processes.
 - **scan persistence / SQLite** — scans + scan_items tables, retention, schema migration.
 - **file cleanup / quarantine** — reversible file actions, quarantine retention.
@@ -56,6 +58,11 @@ Last verified against commit `087cf8a`.
 - `frontend/src/api.ts` — typed client for all backend endpoints.
 - `frontend/src/components/ProcessControlDashboard.tsx` — process control table/UI.
 - `frontend/src/components/FpsOptimizerPanel.tsx` — FPS optimizer panel.
+- `frontend/src/components/ChatPreviewPanel.tsx` — "Ask OpenCleaner" panel; owns chat state, calls `client.previewChatCommand`.
+- `frontend/src/components/ChatCommandInput.tsx` — chat textarea, explicit-selection confirm checkbox, submit control.
+- `frontend/src/components/ChatSuggestedPrompts.tsx` — canned prompt chips that submit preset chat messages.
+- `frontend/src/components/ChatPreviewResponse.tsx` — renders chat preview response: summary, warnings, item lists, actions, disclaimer.
+- `frontend/src/components/ChatPreviewItemList.tsx` — renders one labeled list of chat preview items by status.
 
 ## Decision
 
@@ -78,6 +85,8 @@ Last verified against commit `087cf8a`.
 - Process execution is **intentionally not implemented**; the execution endpoint returns 501.
 - Chat command preview is deterministic, local, no LLM, no OS access, no execution,
   and issues no confirmation token.
+- The Ask OpenCleaner UI calls `POST /api/chat/command-preview` through
+  `client.previewChatCommand` and never calls `/api/processes/end`.
 
 ## SafetyInvariant
 
@@ -90,6 +99,8 @@ Last verified against commit `087cf8a`.
 - `safe_to_end` and `safe_to_disable_startup` are never granted by the action policy.
 - No process kill/suspend/disable execution path exists anywhere in the codebase.
 - Preview endpoints must never mutate OS state.
+- Chat UI is preview-only; it displays backend warnings/disclaimers and provides no
+  execute, kill, suspend, disable, or confirm-action button.
 
 ## KnownRisk
 
