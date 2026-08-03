@@ -1,87 +1,72 @@
-# OpenCleaner AI
+# OpenCleaner
 
-OpenCleaner AI is an open-source, **local-first** desktop optimization and cleaning application aimed at **explainability**, **reversibility**, and **safety** (not maximally aggressive deletion).
+OpenCleaner is an open-source, **local-first** desktop application for understanding and safely controlling what's running on your computer. Think **Task Manager, but understandable, safe, beautiful, and chat-controlled** — not another aggressive junk-file cleaner.
 
 This repository contains:
 
-- `backend/`: Python **FastAPI** service, **SQLite** storage, modular scanners, deterministic rules engine, local ML-assisted ranking, quarantine + audit logging.
+- `backend/`: Python **FastAPI** service, **SQLite** storage, modular scanners (processes, services, startup, scheduled tasks, filesystem, browser profiles), a deterministic rules engine, a local Windows intelligence database, local ML-assisted ranking, and quarantine + audit logging.
 - `frontend/`: **Tauri + React + Vite** UI (dark dashboard, sortable inventory, charts, Explain This, Safety Center, mode switching).
 
-## v0.4.2 (Settings and safety preferences)
+## Product direction
 
-**Version tag:** `v0.4.2_SettingsAndSafetyPreferences`
+OpenCleaner should help a normal user answer, in plain English:
 
-- **Local settings** stored in SQLite — cleanup mode, risk visibility, scanner toggles, quarantine retention, logging mode.
-- **API**: `GET/PUT /api/settings`, `POST /api/settings/reset`.
-- **Conservative defaults**: quarantine-only cleanup, basic risk visibility, all scanners on, manual quarantine retention, redacted audit paths.
-- **Settings UI** — full page with reset and advanced-risk warning.
+- What is running on my computer right now?
+- What does each process, service, startup entry, or scheduled task actually do?
+- Is it essential, important, non-essential, gaming-relevant, or unknown?
+- What can I safely stop or suspend before gaming — and what should I never touch?
+- What could break if I stop something?
 
-See [docs/SETTINGS.md](docs/SETTINGS.md).
+The goal is a **chat-driven process/task intelligence and control center**: explain what's running, recommend what's safe to pause, and refuse to touch anything that could break the system — driven by conversation as much as by clicking. File cleanup (quarantine-based) remains a supported, secondary surface rather than the headline feature.
 
-## v0.4.1 (Frontend UX Alpha)
+See [`docs/PROCESS_CONTROL_PIVOT_PLAN.md`](docs/PROCESS_CONTROL_PIVOT_PLAN.md) for the detailed technical plan behind this direction.
 
-**Version tag:** `v0.4.1_FrontendUXAlpha`
+## Safety model
 
-A non-developer can complete the main **local** flow:
+OpenCleaner is built around **explainability and reversibility**, not maximally aggressive action:
 
-1. Open the app (Vite dev or Tauri).
-2. **Run scan** from the dashboard.
-3. **Review findings** with plain-English explanations and risk badges.
-4. **Preview cleanup** for selected safe items (preview is required before execute).
-5. **Execute quarantine cleanup** in **Assisted** mode with explicit confirmation.
-6. Read the **cleanup summary** (estimated vs confirmed size, skipped/blocked/failed).
-7. **Restore from quarantine** if needed.
+- **Permission modes**, enforced in both UI and API:
+  1. **Read-only** — scanning, reporting, explanations only. No destructive operations.
+  2. **Assisted cleanup** — file moves go to **quarantine** first, with rollback; medium+ risk items require explicit confirmation.
+  3. **Performance / gaming** — **no** file deletion; process suspension is **preview-first** with an explicit `confirm_apply`, and stop/rollback resumes suspended PIDs.
+- **Preview before action**: cleanup and performance changes always require a preview step before anything executes.
+- **Hard-protected items**: a central protected registry (`backend/app/engine/protected_registry.py`) blocks OS-critical, security, anti-cheat, GPU, audio, and networking processes/services from being touched at all — no code path may re-implement or bypass this list.
+- **ML and intelligence never authorize deletion or termination** — they inform ranking and explanations only; the rules engine and action-gating stage have final say.
+- **Unknown items are never assumed safe** — they're surfaced for the user to decide, never auto-selected.
+- Every cleanup and performance action is written to a local audit log.
 
-**New API endpoints**
+## Architecture
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/health` | App version, API version, `scan_in_progress` |
-| `GET` | `/api/scan/status` | Whether a scan is running |
-| `POST` | `/api/cleanup/preview` | Dry-run; returns `preview_id` |
-| `POST` | `/api/cleanup/execute` | Quarantine selected items (requires preview) |
+Layers are intentionally separated:
 
-**UI components** live under `frontend/src/components/` (`Dashboard`, `ScanResults`, `CleanupReview`, `QuarantineManager`, etc.). Selection helpers: `frontend/src/selection.ts`.
+- **Scanners** (`backend/app/scanners/`): gather facts — processes, services, startup entries, scheduled tasks, filesystem, browser trees.
+- **Rules engine** (`backend/app/engine/rules_engine.py`): deterministic safety and classification buckets; process criticality delegates to `protected_registry`.
+- **ML ranker** (`backend/app/engine/ml_ranker.py`): local, feature-based ranking and explain-supporting scores. Optional scikit-learn calibrator trained on synthetic data; never authorizes deletion.
+- **Intelligence** (`backend/data/windows_intelligence.json`, `backend/app/services/intelligence_service.py`): local, offline explanations and conservative classification hints for common Windows and gaming-ecosystem software; never enables deletion alone.
+- **Actions** (`backend/app/actions/`): quarantine moves, assisted cleanup orchestration, performance (suspend/resume) sessions.
+- **Persistence** (`backend/sql/schema.sql`): scans, items, audit log, quarantine metadata, user feedback for local learning nudges.
 
-**Current limitations**
+Windows-specific probes (services, scheduled tasks, registry Run keys) activate when `sys.platform == "win32"`. Non-Windows development uses live `psutil` data where possible, with `backend/data/sample_scan.json` as a mock fallback.
 
-- File quarantine only; processes/services are report-only.
-- Preview must match execute item ids exactly; preview expires after ~1 hour.
-- Unknown / medium-risk items need explicit opt-in (checkbox) before preview.
-- Permanent Recycle Bin emptying needs a separate confirmation flag on execute.
-- No cloud APIs, telemetry, registry cleaning, or auto service disable in this release.
+## Current capabilities
 
-See [CHANGELOG.md](CHANGELOG.md) for details.
+- Scan processes, services, startup entries, scheduled tasks, filesystem locations, and browser profiles into a unified `ScanItem` model.
+- Plain-English explanations per item ("Explain This"), backed by the local intelligence database and rules engine.
+- Assisted file cleanup: preview → confirm → quarantine → restore, with size and risk reporting.
+- Performance mode: preview-first process suspension for gaming/performance sessions, with rollback.
+- Local settings (cleanup mode, risk visibility, scanner toggles, quarantine retention, logging mode).
+- Safety Center summary API (quarantine stats, performance session snapshot, protected-item counts, recent audit actions).
+- Local, offline Windows intelligence database with known/unknown labeling — nothing is called "safe" by omission.
 
-## v0.4 (canonical scan model + reasoning pipeline)
+## Current limitations
 
-- **Canonical `ScanItem`** (`backend/app/models/scan_item.py`) — unified typed schema for all inventory rows (metrics, intelligence, bucket, action flags, provenance).
-- **Pipeline** (`backend/app/pipeline/`) — `normalize` → `rules` → `intelligence` → `ML` (metrics only) → `explanation` → `action_gating`; rules always win; intelligence cannot downgrade critical items.
-- **Provenance** — every stage appends `decided_by` / `evidence` metadata; visible in JSON exports.
-- **Deterministic export** — `serialize_scan_result()` stable key order and sorted items (`backend/app/pipeline/serialize.py`).
-- **Frontend** — `frontend/src/scanItem.ts` helpers; API types aligned with canonical shape.
-- **Docs** — [docs/SCAN_SCHEMA.md](docs/SCAN_SCHEMA.md), [docs/SCAN_PIPELINE.md](docs/SCAN_PIPELINE.md).
+- File quarantine is implemented; process/service/startup control is currently **report-only** in the UI (chat-driven process control is the active development direction — see the pivot plan).
+- Preview sessions must match execute item IDs exactly and expire after about an hour.
+- Unknown or medium-risk items require explicit opt-in before they can be previewed or executed.
+- Permanent Recycle Bin emptying requires a separate confirmation flag.
+- No cloud APIs, telemetry, registry cleaning, or automatic service disabling.
 
-## v0.3 (Windows Intelligence Database)
-
-- **Local encyclopedia**: `backend/data/windows_intelligence.json` — vendor/category, plain-English explanations, qualitative impact and risk hints for common Windows and gaming ecosystem software (no cloud APIs).
-- **Intelligence service**: `backend/app/services/intelligence_service.py` — exact → alias → conservative fuzzy; unknown items stay **unknown / ask user** (never marked “safe” by omission).
-- **Pipeline**: scans apply **rules → intelligence enrichment → ML ranking** (`backend/app/services/scan_service.py`); protected / critical rule buckets are **never** downgraded by intelligence.
-- **Explain This**: prefers intelligence text when present; critical heuristics still override (`backend/app/engine/explain.py`).
-- **UI**: Known / Unknown badges, vendor & category columns, stronger warnings for **unknown services**, filters (known, gaming / startup / risk).
-- **Docs**: `docs/INTELLIGENCE_DATABASE.md` (schema, contribution, safety policy).
-
-## v0.2 (safety and packaging hardening)
-
-- **Filesystem scans**: directory walks use **`bounded_walk`** (`backend/app/utils/fs.py`) with caps on files, depth, bytes inspected, deadlines, symlink loop handling, and capped duplicate hashing (`backend/app/scanners/scan_limits.py`). Startup folders and browser profile sizing use the same walker.
-- **Windows tasks**: prefer **`schtasks /query /xml`** with namespace-tolerant parsing; **LIST** fallback (`backend/app/scanners/tasks.py`). Fixture: `backend/tests/fixtures/sample_tasks.xml`.
-- **Performance mode**: central **`protected_registry`** for suspend decisions; browsers/shells only if **explicitly listed**; **`POST /api/performance/preview`** before **`POST /api/performance/start`** with **`confirm_apply: true`**.
-- **Safety Center API**: **`GET /api/safety/summary`** (quarantine stats, performance session snapshot, protected-pattern counts, recent audit actions).
-- **Packaging**: see **`docs/PACKAGING.md`** and **`scripts/bundle_backend_stub.sh`** (PyInstaller outline).
-
-## Quick start (development)
-
-### 1) Backend
+## Running the backend
 
 ```bash
 cd backend
@@ -100,7 +85,7 @@ Or:
 
 Data is stored under `~/.opencleaner/` by default (database, quarantine, logs).
 
-### 2) Frontend
+## Running the frontend
 
 ```bash
 cd frontend
@@ -108,7 +93,13 @@ npm install
 npm run dev
 ```
 
-### 3) Desktop shell (Tauri)
+Optional: point the dev UI at a non-default backend URL:
+
+```bash
+export VITE_API_BASE="http://127.0.0.1:8742"
+```
+
+## Running the desktop shell (Tauri)
 
 ```bash
 cd frontend
@@ -116,45 +107,13 @@ npm install
 npm run tauri dev
 ```
 
-Requirements: **Rust** toolchain for Tauri. The dev UI loads the Vite dev server and talks to the backend at `http://127.0.0.1:8742`.
+Requires the **Rust** toolchain. The dev shell loads the Vite dev server and talks to the backend at `http://127.0.0.1:8742`.
 
-Optional:
+See [`docs/PACKAGING.md`](docs/PACKAGING.md) for sidecar packaging (bundling the backend with the Tauri build).
 
-```bash
-export VITE_API_BASE="http://127.0.0.1:8742"
-```
+## Running tests
 
-## Permission modes (enforced in UI + API behavior)
-
-1. **Read-only**: scanning, reporting, explanations. No destructive operations.
-2. **Assisted cleanup**: file moves into **quarantine** first; rollback supported; medium+ risk requires explicit confirmation flags.
-3. **Performance / gaming**: **no** file deletion; **preview-first** process suspension with explicit **confirm_apply**; **stop/rollback** resumes PIDs.
-
-## Architecture (high level)
-
-Layers are intentionally separated:
-
-- **Scanners** (`backend/app/scanners/`): gather facts (processes, services, startup, tasks, filesystem, browser trees).
-- **Rules engine** (`backend/app/engine/rules_engine.py`): deterministic safety and classification buckets (process criticality delegates to **`protected_registry`**).
-- **ML ranker** (`backend/app/engine/ml_ranker.py`): local, feature-based ranking and explain-supporting scores. Optional **scikit-learn** calibrator trained on synthetic data mirroring the heuristic mapping; **never** authorizes deletion.
-- **Intelligence** (`backend/data/windows_intelligence.json`, `backend/app/services/intelligence_service.py`): local explanations and conservative classification hints; **never** enables deletion alone.
-- **Actions** (`backend/app/actions/`): quarantine moves, assisted cleanup orchestration, performance sessions.
-- **Persistence** (`backend/sql/schema.sql`): scans, items, audit log, quarantine metadata, user feedback for local learning nudges.
-
-Windows-specific probes (Services, scheduled tasks, registry Run keys) activate when `sys.platform == "win32"`. Non-Windows development uses live `psutil` data where possible plus `backend/data/sample_scan.json` fallbacks.
-
-**Desktop packaging** (sidecar backend + Tauri): see `docs/PACKAGING.md`.
-
-## Security notes
-
-- **No cloud dependency** and **no telemetry by default** (`telemetry_enabled=false` in settings; stored as `settings.telemetry=false` in SQLite).
-- Destructive paths are blocked against a conservative critical-prefix list for Windows system directories.
-- **Admin/elevation** may still be required for some OS policies (for example certain `powercfg` operations). The app is designed to degrade gracefully when elevation is missing.
-- **ML cannot delete**: cleanup requires Assisted mode + explicit selection + rule gates.
-
-## Testing
-
-Backend unit tests:
+Backend:
 
 ```bash
 cd backend
@@ -162,7 +121,7 @@ source .venv/bin/activate
 PYTHONPATH=. pytest
 ```
 
-Frontend typecheck, unit tests, and production bundle:
+Frontend (typecheck, unit tests, production bundle):
 
 ```bash
 cd frontend
@@ -171,25 +130,29 @@ npm run test
 npm run build
 ```
 
-## Mock scan mode
+### Mock scan mode
 
-Force mock dataset only (useful on CI or sandboxes):
+Force the mock dataset (useful on CI or sandboxes without live process/service access):
 
 ```bash
 export OPENCLEANER_USE_MOCK=1
 ```
 
-## Roadmap (short)
+## Privacy and local-first notes
 
-- Integrity-level-aware Windows scanning and richer task trigger parsing.
-- macOS/Linux parity: `launchctl`, Linux systemd user units, package-manager orphan hints.
-- Optional **NVML** GPU process attribution (explicit dependency) behind a feature flag.
-- Automate **PyInstaller** / CI-produced sidecar in `scripts/` (beyond the current stub).
+- No cloud dependency and **no telemetry by default** (`telemetry_enabled=false` in settings, stored as `settings.telemetry=false` in SQLite).
+- All scanning, reasoning, and storage happen locally in SQLite under `~/.opencleaner/`.
+- Destructive paths are blocked against a conservative critical-prefix list for system directories.
+- Admin/elevation may still be required for some OS-level operations (for example certain `powercfg` calls); the app is designed to degrade gracefully when elevation is missing.
+
+## Roadmap direction
+
+The near-term focus is turning process, service, startup, and task visibility into a full **chat-driven control center**: live process inventory with essential/important/non-essential/gaming-impact classification, an FPS optimization advisor, and a chat interface that can explain and preview actions but never executes without explicit, separately-confirmed user consent. File cleanup stays supported as a secondary "Storage" surface. Longer-term directions include macOS/Linux parity (`launchctl`, systemd user units) and optional GPU process attribution. See [`docs/PROCESS_CONTROL_PIVOT_PLAN.md`](docs/PROCESS_CONTROL_PIVOT_PLAN.md) for the full technical plan.
 
 ## UI mock
 
-See `docs/UI_MOCK_LAYOUT.txt` for an ASCII layout sketch.
+See [`docs/UI_MOCK_LAYOUT.txt`](docs/UI_MOCK_LAYOUT.txt) for an ASCII layout sketch.
 
 ## License
 
-MIT: see `LICENSE`.
+MIT: see [`LICENSE`](LICENSE).

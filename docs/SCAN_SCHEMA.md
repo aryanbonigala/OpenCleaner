@@ -1,6 +1,6 @@
 # Scan schema (canonical ScanItem)
 
-OpenCleaner **v0.4** standardizes every scanner row as a **`ScanItem`** (`backend/app/models/scan_item.py`). API responses, exports, and persisted `detail_json.canonical` blobs use this shape.
+OpenCleaner standardizes every scanner row as a **`ScanItem`** (`backend/app/models/scan_item.py`). API responses, exports, and persisted `detail_json.canonical` blobs use this shape.
 
 ## Versioning
 

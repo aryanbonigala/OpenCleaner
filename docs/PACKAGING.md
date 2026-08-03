@@ -1,4 +1,4 @@
-# Packaging: OpenCleaner AI (v0.2)
+# Packaging: OpenCleaner AI
 
 This document describes how to ship the **Python FastAPI backend** together with the **Tauri desktop shell** using a **sidecar** pattern: the UI spawns (or expects) a local `opencleaner-backend` binary next to the main executable.
 
@@ -76,7 +76,7 @@ Data lives under the user profile (`~/.opencleaner` / `%USERPROFILE%\.opencleane
 - `scripts/run_backend.sh` — developer backend runner.
 - `scripts/bundle_backend_stub.sh` — **outline only**: documents the PyInstaller command you might run on a Windows CI host (edit paths before use).
 
-## Known limitations (v0.2)
+## Known limitations
 
 - Sidecar lifecycle management (auto-restart, port collision) is left to the integrator.
 - No auto-update channel is defined.

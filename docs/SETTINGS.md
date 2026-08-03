@@ -1,4 +1,4 @@
-# Settings and safety preferences (v0.4.2)
+# Settings and safety preferences
 
 OpenCleaner stores **local** user preferences in SQLite (`settings.user_preferences_v1`). There is no cloud sync and no telemetry.
 
