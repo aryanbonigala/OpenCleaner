@@ -87,6 +87,8 @@ Data is stored under `~/.opencleaner/` by default (database, quarantine, logs).
 
 ## Running the frontend
 
+Node version is pinned via `.nvmrc` at the repo root (`nvm use` from the repo root to pick it up).
+
 ```bash
 cd frontend
 npm install
