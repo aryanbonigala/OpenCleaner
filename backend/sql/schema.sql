@@ -34,8 +34,10 @@ CREATE TABLE IF NOT EXISTS scans (
   error TEXT
 );
 
+-- Item ids are deterministic per item (e.g. "proc-421") and repeat across scans by
+-- design, so row identity is (scan_id, id), not id alone.
 CREATE TABLE IF NOT EXISTS scan_items (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL,
   scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
   category TEXT NOT NULL,
   item_type TEXT NOT NULL,
@@ -46,7 +48,8 @@ CREATE TABLE IF NOT EXISTS scan_items (
   ml_score REAL,
   confidence REAL NOT NULL,
   reasoning TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (scan_id, id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_scan_items_scan ON scan_items(scan_id);

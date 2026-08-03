@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from collections import defaultdict
@@ -238,7 +239,9 @@ def scan_large_unused_candidates() -> list[ScoredItem]:
     for p, sz in candidates[:15]:
         items.append(
             ScoredItem(
-                id=f"large-{hash(str(p)) & 0xFFFFFFFF}",
+                # blake2b, not the builtin str hash: that one is salted per process,
+                # so the same file got a brand new id on every scan.
+                id=f"large-{hashlib.blake2b(str(p).encode(), digest_size=6).hexdigest()}",
                 category="large_files",
                 item_type=ItemType.file_or_folder,
                 name=p.name,

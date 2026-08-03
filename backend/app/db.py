@@ -9,6 +9,40 @@ import aiosqlite
 from app.config import Settings, get_settings
 
 
+_SCAN_ITEM_COLUMNS = (
+    "id, scan_id, category, item_type, name, path, detail_json, "
+    "rule_bucket, ml_score, confidence, reasoning, created_at"
+)
+
+
+async def _rename_legacy_scan_items(db: aiosqlite.Connection) -> bool:
+    """Park a pre-composite-key scan_items aside so schema.sql can recreate it.
+
+    scan_items originally keyed on `id` alone, but item ids are deterministic per
+    item ("proc-421", "dl-report.pdf-3"), so a second scan of the same machine hit
+    `UNIQUE constraint failed: scan_items.id`. The real key is (scan_id, id).
+    """
+    cur = await db.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scan_items'"
+    )
+    row = await cur.fetchone()
+    if row is None or "PRIMARY KEY (scan_id, id)" in (row[0] or ""):
+        return False
+    await db.execute("DROP TABLE IF EXISTS scan_items_legacy")
+    await db.execute("ALTER TABLE scan_items RENAME TO scan_items_legacy")
+    await db.commit()
+    return True
+
+
+async def _restore_legacy_scan_items(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        f"INSERT INTO scan_items ({_SCAN_ITEM_COLUMNS}) "
+        f"SELECT {_SCAN_ITEM_COLUMNS} FROM scan_items_legacy"
+    )
+    await db.execute("DROP TABLE scan_items_legacy")
+    await db.commit()
+
+
 async def init_db(settings: Settings | None = None) -> None:
     settings = settings or get_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -17,9 +51,12 @@ async def init_db(settings: Settings | None = None) -> None:
 
     schema_path = Path(__file__).resolve().parent.parent / "sql" / "schema.sql"
     async with aiosqlite.connect(settings.database_path) as db:
+        migrated_scan_items = await _rename_legacy_scan_items(db)
         if schema_path.exists():
             sql = schema_path.read_text(encoding="utf-8")
             await db.executescript(sql)
+        if migrated_scan_items:
+            await _restore_legacy_scan_items(db)
         await db.execute(
             "INSERT OR IGNORE INTO settings (key, value) VALUES ('permission_mode', 'read_only')"
         )

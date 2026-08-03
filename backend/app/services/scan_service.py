@@ -197,9 +197,39 @@ def _disk_snapshot() -> dict[str, Any]:
         return {"partitions": []}
 
 
+def assert_unique_scan_item_ids(items: list[ScanItem]) -> None:
+    """Fail loudly if two items in one scan share an id.
+
+    Ids are deterministic per item and repeat across scans by design (scan_items is
+    keyed on (scan_id, id)), but within a single scan a collision means a scanner is
+    minting under-scoped ids and would silently merge two real items.
+    """
+    seen: dict[str, ScanItem] = {}
+    clashes: list[str] = []
+    for it in items:
+        first = seen.setdefault(it.id, it)
+        if first is it:
+            continue
+        clashes.append(
+            f"  id={it.id!r}\n"
+            f"    A: type={first.item_type.value} source={first.source} "
+            f"name={first.raw_name!r} display={first.display_name!r} path={first.path!r} "
+            f"facts={first.scanner_facts}\n"
+            f"    B: type={it.item_type.value} source={it.source} "
+            f"name={it.raw_name!r} display={it.display_name!r} path={it.path!r} "
+            f"facts={it.scanner_facts}"
+        )
+    if clashes:
+        raise ValueError(
+            f"Duplicate scan item ids within one scan ({len(clashes)}); "
+            "a scanner is producing under-scoped ids:\n" + "\n".join(clashes)
+        )
+
+
 async def _persist_scan(
     scan_id: str, platform: str, mode: str, items: list[ScanItem], summary: ScanSummary
 ) -> None:
+    assert_unique_scan_item_ids(items)
     async with await db_conn() as db:
         await db.execute(
             """
@@ -238,7 +268,10 @@ async def latest_scan_from_db() -> ScanResult | None:
     async with await db_conn() as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
-            "SELECT id, platform, mode, summary_json FROM scans ORDER BY finished_at DESC LIMIT 1"
+            # finished_at is second-resolution, so two scans a moment apart tie;
+            # rowid breaks the tie in insertion order.
+            "SELECT id, platform, mode, summary_json FROM scans "
+            "ORDER BY finished_at DESC, rowid DESC LIMIT 1"
         )
         row = await cur.fetchone()
         if row is None:
