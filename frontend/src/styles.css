@@ -845,6 +845,20 @@ tr.row-unknown-svc {
   gap: 8px;
 }
 
+.chat-item-list-count {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.chat-item-list-controls {
+  margin-top: 8px;
+}
+
+.chat-item-list-scroll {
+  max-height: 340px;
+  overflow: auto;
+}
+
 .chat-preview-result {
   border: 1px solid var(--border);
   border-radius: 10px;

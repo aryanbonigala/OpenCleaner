@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ChatCommandPreviewItem, ChatCommandPreviewItemStatus } from "../api";
 
 const STATUS_LABEL: Record<ChatCommandPreviewItemStatus, string> = {
@@ -12,13 +13,27 @@ const STATUS_TONE: Record<ChatCommandPreviewItemStatus, string> = {
   informational: "report",
 };
 
+const DEFAULT_VISIBLE = 25;
+const SCROLL_CAP_THRESHOLD = 100;
+
 export function ChatPreviewItemList({ title, items }: { title: string; items: ChatCommandPreviewItem[] }) {
+  const [expanded, setExpanded] = useState(false);
   if (items.length === 0) return null;
+
+  const hasMore = items.length > DEFAULT_VISIBLE;
+  const visible = expanded ? items : items.slice(0, DEFAULT_VISIBLE);
+  const capScroll = expanded && items.length > SCROLL_CAP_THRESHOLD;
+
   return (
     <div className="chat-item-list">
       <h4>{title}</h4>
-      <ul>
-        {items.map((it) => (
+      {hasMore ? (
+        <p className="muted chat-item-list-count">
+          Showing {visible.length} of {items.length}
+        </p>
+      ) : null}
+      <ul className={capScroll ? "chat-item-list-scroll" : undefined}>
+        {visible.map((it) => (
           <li key={it.id} className="chat-item-row">
             <div className="chat-item-row-header">
               <span>{it.display_name}</span>
@@ -29,6 +44,14 @@ export function ChatPreviewItemList({ title, items }: { title: string; items: Ch
           </li>
         ))}
       </ul>
+      {capScroll ? <p className="muted footer-note">Large inventories are capped for readability.</p> : null}
+      {hasMore ? (
+        <div className="chat-item-list-controls">
+          <button type="button" onClick={() => setExpanded((v) => !v)}>
+            {expanded ? "Show less" : "Show more"}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
