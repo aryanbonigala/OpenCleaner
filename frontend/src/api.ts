@@ -377,7 +377,7 @@ export function parseApiError(err: unknown): string {
 
 export const client = {
   health: () =>
-    api<{ status: string; version: string; api_version: string; scan_in_progress: string }>("/health"),
+    api<{ status: string; version: string; api_version: string; stage: string; scan_in_progress: string }>("/health"),
   scanStatus: () => api<{ scan_in_progress: boolean }>("/api/scan/status"),
   getSettings: () => api<UserSettings>("/api/settings"),
   saveSettings: (patch: UserSettingsPatch) =>

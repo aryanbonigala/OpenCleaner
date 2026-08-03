@@ -46,7 +46,7 @@ from app.models.schemas import (
 from app.models.user_settings import UserSettings
 from app.services.settings_service import load_settings, reset_settings, save_settings
 from app.services import scan_state
-from app.version import API_VERSION, APP_VERSION
+from app.version import API_VERSION, APP_STAGE, APP_VERSION
 from app.models.scan_item import ScanItem
 from app.pipeline.adapters import scored_from_scan_item
 from app.engine.protected_registry import protected_pattern_count
@@ -85,6 +85,7 @@ async def health() -> dict[str, str]:
         "component": "opencleaner-backend",
         "version": APP_VERSION,
         "api_version": API_VERSION,
+        "stage": APP_STAGE,
         "scan_in_progress": str(scan_state.is_scan_in_progress()).lower(),
     }
 

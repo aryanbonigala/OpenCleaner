@@ -17,15 +17,22 @@ pins the exact top-level `ScanResult` keys, the `summary` keys, and representati
 narrow text smoke that fails if `api.ts` drops one of those field names. Removing or
 renaming a contract-critical field now fails a test instead of only manual review.
 
+**Update 3:** the v0.1.0 `/health stage` gap below has been closed. `backend/app/
+version.py` now defines `APP_STAGE = "SettingsAndSafetyPreferences"` (the stage
+already implied by the `APP_VERSION` suffix), and `/health` returns it as its own
+`stage` field alongside the existing `status`, `component`, `version`, `api_version`,
+`scan_in_progress`. `frontend/src/api.ts`'s `client.health()` return type now
+declares `stage`. See `backend/tests/test_health_contract.py`.
+
 ## Findings
 
 1. **Central version constant** — Yes. `backend/app/version.py` defines `APP_VERSION`
    (`"0.4.2_SettingsAndSafetyPreferences"`) and `API_VERSION` (`"0.4.2"`), imported into
    `main.py` and used for both the FastAPI app title/version and `/health`.
 2. **`/health` endpoint** — Exists (`main.py:81`). Returns `status`, `component`, `version`
-   (APP_VERSION), `api_version` (API_VERSION), and `scan_in_progress`. No explicit
-   `"stage"` field, but the descriptive `version` string doubles as a stage label
-   (`0.4.2_SettingsAndSafetyPreferences`).
+   (APP_VERSION), `api_version` (API_VERSION), `stage` (APP_STAGE), and
+   `scan_in_progress`. `stage` is now its own machine-parseable field
+   (`"SettingsAndSafetyPreferences"`), not just embedded in the free-text `version`.
 3. **Scan response shape** — `ScanResult` (`schemas.py`) = `{summary, items}`.
    `ScanSummary` includes `scan_id`, `scan_schema_version`, `platform`, `mode`,
    `items_count`, `buckets`, `disk_usage_sample`, `generated_at`, `scanner_warnings`.
@@ -48,10 +55,9 @@ renaming a contract-critical field now fails a test instead of only manual revie
    the whole scan.
 7. **Frontend/backend schema drift** — `frontend/src/api.ts` mirrors `ScanItem`,
    `ScanSummary`, `ProcessControl`, etc. field-for-field against `schemas.py` /
-   `scan_item.py`. No drift found in the reviewed surface. One gap: `api.ts`'s
-   `client.health()` return type doesn't declare a `component` or `stage`-shaped field
-   (only `status/version/api_version/scan_in_progress`), which is a harmless
-   under-typing, not a runtime mismatch.
+   `scan_item.py`. No drift found in the reviewed surface. `client.health()`'s
+   return type now declares `stage` alongside `status/version/api_version/
+   scan_in_progress` (still no `component`, which remains a harmless under-typing).
 
 ## Already stronger than roadmap expectations
 
@@ -72,9 +78,9 @@ renaming a contract-critical field now fails a test instead of only manual revie
 - No per-scan `duration` (start/end timing) or explicit scan `status` field
   (success/partial/failed) on `ScanSummary` — only `scanner_warnings` (list) and
   `generated_at` (a single timestamp, not start+end).
-- `/health` has no distinct `stage` field separate from the free-text version string;
-  if the roadmap wants a machine-parseable stage (e.g. `"CoreScanMVPFreeze"`), it isn't
-  present as its own field today.
+- ~~`/health` has no distinct `stage` field separate from the free-text version
+  string~~ Closed — see Update 3 above. `/health` now returns `stage` (from the new
+  `APP_STAGE` constant) as its own field.
 
 ## Gaps for v0.1.1 APIContractLock
 
