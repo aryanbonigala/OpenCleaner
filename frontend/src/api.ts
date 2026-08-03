@@ -80,6 +80,39 @@ export interface IntelligenceSnapshot {
   rules_protect?: boolean;
 }
 
+export type ProcessControlCategory =
+  | "essential"
+  | "important"
+  | "non_essential"
+  | "gaming_fps_impact"
+  | "unknown"
+  | "not_applicable";
+
+export type ActionPolicy =
+  | "blocked"
+  | "report_only"
+  | "preview_required"
+  | "explicit_selection_required"
+  | "allowed_with_confirmation"
+  | "unsupported";
+
+/** Process/task control metadata; populated by the backend classifier stage. */
+export interface ProcessControl {
+  applicable: boolean;
+  category: ProcessControlCategory;
+  action_policy: ActionPolicy;
+  safe_to_end: boolean;
+  safe_to_suspend: boolean;
+  safe_to_disable_startup: boolean;
+  blocked_reason?: string | null;
+  user_visible_summary?: string | null;
+  fps_impact?: string | null;
+  memory_impact?: string | null;
+  cpu_impact?: string | null;
+  confidence: number;
+  evidence: string[];
+}
+
 export interface ExplanationBlock {
   summary: string;
   headline?: string | null;
@@ -115,6 +148,7 @@ export interface ScanItem {
   timestamps: Record<string, string>;
   scanner_facts: Record<string, unknown>;
   confidence: number;
+  process_control: ProcessControl;
 }
 
 /** @deprecated Use ScanItem — kept for gradual migration */

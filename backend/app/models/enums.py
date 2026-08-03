@@ -33,3 +33,25 @@ class RiskBucket(str, Enum):
     ask_user = "ask_user"
     unknown = "unknown"
     risky_system_critical = "risky_system_critical"
+
+
+class ProcessControlCategory(str, Enum):
+    """How a running/scheduled item relates to keeping the machine usable."""
+
+    essential = "essential"
+    important = "important"
+    non_essential = "non_essential"
+    gaming_fps_impact = "gaming_fps_impact"
+    unknown = "unknown"
+    not_applicable = "not_applicable"
+
+
+class ActionPolicy(str, Enum):
+    """What the UI/API may offer for an item — never widened by ML or intelligence."""
+
+    blocked = "blocked"
+    report_only = "report_only"
+    preview_required = "preview_required"
+    explicit_selection_required = "explicit_selection_required"
+    allowed_with_confirmation = "allowed_with_confirmation"
+    unsupported = "unsupported"

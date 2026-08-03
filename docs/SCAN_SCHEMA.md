@@ -6,7 +6,7 @@ OpenCleaner standardizes every scanner row as a **`ScanItem`** (`backend/app/mod
 
 | Field | Meaning |
 | ----- | ------- |
-| `SCAN_SCHEMA_VERSION` (currently **1**) | Semantics of `ScanItem` fields |
+| `SCAN_SCHEMA_VERSION` (currently **2**) | Semantics of `ScanItem` fields |
 | `scan_version` on each item | Copy of schema version at normalization time |
 | `scan_schema_version` on `ScanSummary` | Report / API envelope version |
 
@@ -38,6 +38,33 @@ Bump `SCAN_SCHEMA_VERSION` when you make **breaking** field renames or change pr
 | `timestamps` | ISO UTC markers per stage |
 | `scanner_facts` | Raw scanner dict (minus embedded intelligence) |
 | `confidence` | 0–1 rules/intelligence confidence |
+| `process_control` | Process/task control metadata (see below) |
+
+## Process control block
+
+Every `ScanItem` carries a `process_control` block describing how the item may be controlled.
+It exists for all item types so consumers never have to null-check it.
+
+| Field | Description |
+| ----- | ----------- |
+| `applicable` | `true` for `process`, `service`, `startup_entry`, `scheduled_task`; `false` otherwise |
+| `category` | `essential`, `important`, `non_essential`, `gaming_fps_impact`, `unknown`, `not_applicable` |
+| `action_policy` | `blocked`, `report_only`, `preview_required`, `explicit_selection_required`, `allowed_with_confirmation`, `unsupported` |
+| `safe_to_end` / `safe_to_suspend` / `safe_to_disable_startup` | Per-action permission; **all default to `false`** |
+| `blocked_reason` | Why an action is refused (shown to the user) |
+| `user_visible_summary` | Plain-English one-liner for the UI |
+| `fps_impact` / `memory_impact` / `cpu_impact` | Qualitative impact hints |
+| `confidence` | 0–1 confidence in the classification |
+| `evidence` | Human-readable reasons behind the classification |
+
+Applicability is structural — set from `item_type` at construction time. Classification
+(`category`, `action_policy`, the `safe_to_*` flags) is left at its inert defaults until a
+classifier stage fills it in: nothing is considered safe to end, suspend, or disable by default,
+and `report_only` means "display it, offer no action". An already-classified block is never
+reset by later construction or `model_copy` updates.
+
+Items stored before this block existed rehydrate with defaults, so `applicable` is derived and
+the action flags stay `false`.
 
 ## Provenance record
 

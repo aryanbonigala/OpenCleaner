@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from app.models.scan_item import ExplanationBlock, ItemMetrics, ScanItem, utc_now_iso
+from app.models.scan_item import (
+    SCAN_SCHEMA_VERSION,
+    ExplanationBlock,
+    ItemMetrics,
+    ScanItem,
+    utc_now_iso,
+)
 from app.models.schemas import ScoredItem
 from app.pipeline.adapters import _intel_from_detail
 
@@ -28,7 +34,7 @@ def normalize_scored_item(scored: ScoredItem, *, scan_version: int | None = None
 
     return ScanItem(
         id=scored.id,
-        scan_version=scan_version or scored.detail.get("scan_version") or 1,
+        scan_version=scan_version or scored.detail.get("scan_version") or SCAN_SCHEMA_VERSION,
         item_type=scored.item_type,
         source=scored.category,
         subtype=subtype,

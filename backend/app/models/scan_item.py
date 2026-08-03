@@ -3,12 +3,22 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from app.models.enums import ItemType, PermissionMode, RiskBucket
+from app.models.enums import ActionPolicy, ItemType, PermissionMode, ProcessControlCategory, RiskBucket
 
 # Bump when canonical ScanItem field semantics change (not for data file entries).
-SCAN_SCHEMA_VERSION = 1
+SCAN_SCHEMA_VERSION = 2
+
+# Item types the process-control model applies to (running or scheduled software).
+PROCESS_CONTROL_ITEM_TYPES: frozenset[ItemType] = frozenset(
+    {
+        ItemType.process,
+        ItemType.service,
+        ItemType.startup_entry,
+        ItemType.scheduled_task,
+    }
+)
 
 
 def utc_now_iso() -> str:
@@ -73,6 +83,29 @@ class Recommendations(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class ProcessControl(BaseModel):
+    """
+    Process/task control metadata — the classifier stage fills this in later.
+
+    Defaults are deliberately inert: nothing is safe to end/suspend/disable until a
+    classifier says so, and `report_only` means "show it, offer no action".
+    """
+
+    applicable: bool = False
+    category: ProcessControlCategory = ProcessControlCategory.not_applicable
+    action_policy: ActionPolicy = ActionPolicy.report_only
+    safe_to_end: bool = False
+    safe_to_suspend: bool = False
+    safe_to_disable_startup: bool = False
+    blocked_reason: str | None = None
+    user_visible_summary: str | None = None
+    fps_impact: str | None = None
+    memory_impact: str | None = None
+    cpu_impact: str | None = None
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    evidence: list[str] = Field(default_factory=list)
+
+
 class ScanItem(BaseModel):
     """Canonical scan row — sole shape exposed in API/export after v0.4."""
 
@@ -99,6 +132,24 @@ class ScanItem(BaseModel):
     timestamps: dict[str, str] = Field(default_factory=dict)
     scanner_facts: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    process_control: ProcessControl = Field(default_factory=ProcessControl)
+
+    @model_validator(mode="after")
+    def _mark_process_control_applicability(self) -> "ScanItem":
+        """
+        Structural only: say whether process control *applies*, never how safe it is.
+
+        Runs on every construction path (live scan, stored-payload rehydration, tests),
+        and leaves an already-classified block untouched.
+        """
+        pc = self.process_control
+        if pc.applicable or pc.category is not ProcessControlCategory.not_applicable:
+            return self
+        if self.item_type in PROCESS_CONTROL_ITEM_TYPES:
+            self.process_control = pc.model_copy(
+                update={"applicable": True, "category": ProcessControlCategory.unknown}
+            )
+        return self
 
 
 class CanonicalScanSummary(BaseModel):

@@ -193,9 +193,10 @@ ML ranker, quarantine retention.
 
 ### Backend
 
-1. Process-control classification fields on `ScanItem` (`process_control_category`, `safe_to_end`,
-   `safe_to_suspend`, `safe_to_disable_startup`, `action_policy`, `blocked_reason`,
-   `user_visible_summary`, `fps_impact`, `memory_impact`, `cpu_impact`, `evidence`).
+1. ~~Process-control metadata block on `ScanItem`~~ — **shipped**: `ScanItem.process_control`
+   (`applicable`, `category`, `action_policy`, `safe_to_end`, `safe_to_suspend`,
+   `safe_to_disable_startup`, `blocked_reason`, `user_visible_summary`, `fps_impact`,
+   `memory_impact`, `cpu_impact`, `confidence`, `evidence`) with inert defaults.
 2. A dedicated classifier module — today classification is spread across rules engine + intelligence
    + action gating with a deletion-oriented vocabulary.
 3. Process inventory endpoint (`GET /api/processes`) — the UI can only get processes as a side effect
@@ -232,53 +233,62 @@ ML ranker, quarantine retention.
 
 ### 6.1 New enum — `backend/app/models/enums.py`
 
+Shipped in `backend/app/models/enums.py`:
+
 ```python
 class ProcessControlCategory(str, Enum):
     essential = "essential"
     important = "important"
     non_essential = "non_essential"
-    gaming_impact = "gaming_impact"
+    gaming_fps_impact = "gaming_fps_impact"
     unknown = "unknown"
+    not_applicable = "not_applicable"     # files, browser profiles, duplicates, orphans
 
 
 class ActionPolicy(str, Enum):
-    blocked = "blocked"                  # hard-protected; never selectable
-    requires_explicit_selection = "requires_explicit_selection"   # browsers/shell/unknown
-    allowed_with_confirmation = "allowed_with_confirmation"       # normal safe path
-    report_only = "report_only"          # services/tasks in MVP
+    blocked = "blocked"                                   # hard-protected; never selectable
+    report_only = "report_only"                           # display only (default; services/tasks in MVP)
+    preview_required = "preview_required"
+    explicit_selection_required = "explicit_selection_required"   # browsers/shell/unknown
+    allowed_with_confirmation = "allowed_with_confirmation"
+    unsupported = "unsupported"
 ```
 
 `RiskBucket` is **not** renamed (persisted in `scan_items.rule_bucket`, exported in reports).
 
 ### 6.2 New fields on `ScanItem` — `backend/app/models/scan_item.py`
 
-All additive, all defaulted, so existing consumers keep working:
+All additive, all defaulted, so existing consumers keep working. Shipped:
 
 ```python
 class ProcessControl(BaseModel):
-    process_control_category: ProcessControlCategory = ProcessControlCategory.unknown
+    applicable: bool = False
+    category: ProcessControlCategory = ProcessControlCategory.not_applicable
+    action_policy: ActionPolicy = ActionPolicy.report_only
     safe_to_end: bool = False
     safe_to_suspend: bool = False
     safe_to_disable_startup: bool = False
-    action_policy: ActionPolicy = ActionPolicy.report_only
     blocked_reason: str | None = None
-    user_visible_summary: str = ""
-    fps_impact: str = "unknown"     # none | low | medium | high | unknown
-    memory_impact: str = "unknown"  # low | medium | high | unknown
-    cpu_impact: str = "unknown"     # low | medium | high | unknown
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    user_visible_summary: str | None = None
+    fps_impact: str | None = None       # none | low | medium | high
+    memory_impact: str | None = None    # low | medium | high
+    cpu_impact: str | None = None       # low | medium | high
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     evidence: list[str] = Field(default_factory=list)
-    group_key: str | None = None        # e.g. "chrome.exe" for parent/child rollup
-    is_group_parent: bool = False
 ```
 
 and on `ScanItem`:
 
 ```python
-process_control: ProcessControl | None = None   # populated for process/service/startup/task items
+process_control: ProcessControl = Field(default_factory=ProcessControl)
 ```
 
-Bump `SCAN_SCHEMA_VERSION` to `2` (constant already exists and is exported — keep it).
+A `model_validator(mode="after")` sets `applicable=True` + `category=unknown` for
+`process` / `service` / `startup_entry` / `scheduled_task` items and leaves an already-classified
+block untouched. `SCAN_SCHEMA_VERSION` is now `2`.
+
+Still to add in a later phase (grouping work, §5 item 5): `group_key: str | None`,
+`is_group_parent: bool` — either on `ProcessControl` or on the inventory row model.
 
 New scanner facts (kept in `ScanItem.scanner_facts`, no schema change needed):
 `ppid`, `parent_name`, `username`, `elevated`, `integrity_level`, `signature_status`,
@@ -422,8 +432,9 @@ Hard rules:
 | `essential` | OS core, security/AV, anti-cheat, GPU driver, audio, networking, input stack | Never |
 | `important` | Usually leave running; stopping breaks useful functionality (sync clients mid-sync, VPN, peripheral utilities, main game client) | Explicit selection + confirmation |
 | `non_essential` | Generally safe to suspend/close (updaters, helper trays, launcher web helpers) | Default-selectable in previews |
-| `gaming_impact` | Affects FPS/frametime/memory: overlays, recorders, sync, launchers, browsers | Explicit selection; suspend preferred |
+| `gaming_fps_impact` | Affects FPS/frametime/memory: overlays, recorders, sync, launchers, browsers | Explicit selection; suspend preferred |
 | `unknown` | Not enough confidence | Never auto-selected, never in bulk actions |
+| `not_applicable` | Files, browser profiles, duplicates, orphans — no process control | No process action |
 
 Mapping from the existing `RiskBucket` (kept for storage/report compatibility):
 
@@ -433,11 +444,11 @@ Mapping from the existing `RiskBucket` (kept for storage/report compatibility):
 | `RiskBucket.risky_system_critical` | `essential` |
 | Intelligence category ∈ {Windows core, Security, Anticheat, GPU driver, Audio} | `essential` |
 | Intelligence `safe_to_stop == False` (and not essential) | `important` |
-| Intelligence category ∈ {Game launcher, Browser, Browser helper, Media, Cloud sync} or `gaming_impact` ∈ {medium, high} | `gaming_impact` |
+| Intelligence category ∈ {Game launcher, Browser, Browser helper, Media, Cloud sync} or intelligence `gaming_impact` ∈ {medium, high} | `gaming_fps_impact` |
 | Intelligence `safe_to_stop == True` + `RiskBucket.safe_to_remove/probably_safe` | `non_essential` |
 | Intelligence `known == False` or `RiskBucket.unknown` | `unknown` |
 
-`gaming_impact` overlays rather than replaces: an item can be `gaming_impact` **and** treated as
+`gaming_fps_impact` overlays rather than replaces: an item can be `gaming_fps_impact` **and** treated as
 `important` for safety. Implementation: category is the safety bucket; `fps_impact` is the separate
 field used by the FPS panel. When in doubt, classify **more** conservatively.
 
@@ -481,7 +492,7 @@ Response:
   "platform": "Windows 11",
   "totals": {"processes": 214, "groups": 96,
              "essential": 41, "important": 22, "non_essential": 18,
-             "gaming_impact": 9, "unknown": 6},
+             "gaming_fps_impact": 9, "unknown": 6},
   "system": {"cpu_percent": 12.4, "memory": {"total_gb": 32.0, "used_gb": 13.1, "percent": 41.0}},
   "items": [
     {
@@ -502,7 +513,8 @@ Response:
       "group_child_count": 4,
       "metrics": {"memory_mb": 512.4, "cpu_percent": 1.2},
       "process_control": {
-        "process_control_category": "gaming_impact",
+        "applicable": true,
+        "category": "gaming_fps_impact",
         "safe_to_end": true,
         "safe_to_suspend": true,
         "safe_to_disable_startup": true,
@@ -591,11 +603,11 @@ Response: same shape as `/api/processes/end` plus `"intent"`. Token invalid/expi
 Additive-first. Existing consumers (`frontend/src/scanItem.ts`, `docs/SCAN_SCHEMA.md`,
 `/api/export/report`, stored `scan_items.detail_json`) must keep working.
 
-1. **`ScanItem.process_control: ProcessControl | None = None`** — optional, so old stored payloads
-   deserialize unchanged (`scan_item_from_stored_payload` in `backend/app/pipeline/reasoning.py`
-   needs no migration).
-2. **`SCAN_SCHEMA_VERSION: 1 → 2`** in `backend/app/models/scan_item.py`. Readers should treat a
-   missing `process_control` as "not classified".
+1. **`ScanItem.process_control: ProcessControl`** (defaulted) — **shipped**. Old stored payloads
+   deserialize unchanged and get inert defaults (`scan_item_from_stored_payload` in
+   `backend/app/pipeline/reasoning.py` needed no migration).
+2. **`SCAN_SCHEMA_VERSION: 1 → 2`** in `backend/app/models/scan_item.py` — **shipped**. Readers
+   should treat a missing or default `process_control` as "not classified".
 3. **`ScannerToggles`**: add `processes: bool = True`, `services: bool = True`.
    `SETTINGS_SCHEMA_VERSION: 1 → 2`; `settings_service.load_settings()` fills defaults for
    rows written under version 1 (no destructive migration).
@@ -606,7 +618,8 @@ Additive-first. Existing consumers (`frontend/src/scanItem.ts`, `docs/SCAN_SCHEM
    `process_preview`, `process_suspend`, `process_resume`, `process_end`, `process_action_blocked`,
    `chat_preview`, `chat_execute`, `chat_refused`.
 6. **Intelligence DB** (`backend/data/windows_intelligence.json`): optional per-entry
-   `process_control_category` and `fps_impact` fields; `schema_version: 1 → 2`.
+   `process_control_category` (values from `ProcessControlCategory`) and `fps_impact` fields;
+   `schema_version: 1 → 2`.
    `intelligence_service.py` must tolerate both (absent → derive from category map in §10).
 7. **No renames.** `RiskBucket`, `cleanup_eligible`, and `performance_eligible` keep their names.
    If a later phase wants `performance_eligible` → `suspend_eligible`, that requires: emit both keys
@@ -741,7 +754,11 @@ No version numbers. Phases are ordered; parallelism is noted per phase.
   every path referenced in README exists
 - **Parallel:** yes — independent of all code phases
 
-### Phase B — Backend process-control schema
+### Phase B — Backend process-control schema — **done**
+
+Shipped: enums + `ProcessControl` block + `SCAN_SCHEMA_VERSION = 2` + mirrored TS types +
+`backend/tests/test_process_control_schema.py`. Scanner toggles (`processes`, `services`) and
+`SETTINGS_SCHEMA_VERSION` are **not** done — they move into Phase C or D.
 
 - **Files:** `backend/app/models/enums.py`, `backend/app/models/scan_item.py`,
   `backend/app/models/user_settings.py`, `backend/app/pipeline/serialize.py`,
