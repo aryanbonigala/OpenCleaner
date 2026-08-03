@@ -37,7 +37,7 @@ export function QuarantineManager({ entries, loading, onRestore, busyId }: Props
         <div className="quarantine-list">
           {active.map((e) => (
             <div key={e.id} className="quarantine-row">
-              <div>
+              <div className="flex-long-text">
                 <strong>{e.original_path}</strong>
                 <div className="muted">
                   {e.size_bytes ? formatBytes(e.size_bytes) : "—"} · {e.created_at}

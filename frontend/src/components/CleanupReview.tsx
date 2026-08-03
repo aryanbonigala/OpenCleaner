@@ -63,7 +63,7 @@ export function CleanupReview({
             <tbody>
               {preview.items.map((row) => (
                 <tr key={row.id}>
-                  <td>
+                  <td className="cell-long-text">
                     <strong>{row.display_name}</strong>
                     <div className="muted">{row.path}</div>
                   </td>

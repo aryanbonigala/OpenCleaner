@@ -75,7 +75,9 @@ export function ProcessPreviewPanel({
                       <tbody>
                         {grouped[status].map((row) => (
                           <tr key={row.id}>
-                            <td className={`status-${status === "would_allow" ? "will_quarantine" : status}`}>
+                            <td
+                              className={`status-${status === "would_allow" ? "will_quarantine" : status} cell-long-text`}
+                            >
                               {row.display_name}
                             </td>
                             <td className="muted">{row.pid ?? "—"}</td>

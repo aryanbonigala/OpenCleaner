@@ -296,6 +296,8 @@ tr.row-unknown-svc {
 .safety-grid dd {
   margin: 0;
   text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .pre-small {
@@ -665,6 +667,16 @@ tr.row-unknown-svc {
 
 .process-reason-cell {
   max-width: 260px;
+}
+
+.cell-long-text {
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+
+.flex-long-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .process-row-locked td {

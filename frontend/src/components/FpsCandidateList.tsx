@@ -52,7 +52,7 @@ export function FpsCandidateList({ items, selectedIds, confirmExplicitSelection,
                     onChange={() => onToggle(it.id)}
                   />
                 </td>
-                <td>{it.display_name}</td>
+                <td className="cell-long-text">{it.display_name}</td>
                 <td className="muted">{pidOf(it) ?? "—"}</td>
                 <td>{formatMb(it.metrics?.memory_mb)}</td>
                 <td>{formatCpu(it.metrics?.cpu_percent)}</td>

@@ -36,7 +36,7 @@ export function ChatPreviewItemList({ title, items }: { title: string; items: Ch
         {visible.map((it) => (
           <li key={it.id} className="chat-item-row">
             <div className="chat-item-row-header">
-              <span>{it.display_name}</span>
+              <span className="flex-long-text">{it.display_name}</span>
               <span className={`pill process-safety-${STATUS_TONE[it.status]}`}>{STATUS_LABEL[it.status]}</span>
             </div>
             <p className="muted">{it.blocked_reason || it.user_visible_summary || it.reason}</p>
