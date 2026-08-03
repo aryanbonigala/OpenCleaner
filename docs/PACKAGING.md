@@ -40,16 +40,39 @@ Recommended loopback binding: `127.0.0.1:8742` (already the backend default).
 
 Data lives under the user profile (`~/.opencleaner` / `%USERPROFILE%\.opencleaner`): database, quarantine, logs. No cloud.
 
+## Building the backend sidecar binary (current platform, verified)
+
+```bash
+./scripts/bundle_backend.sh
+```
+
+This creates/reuses `backend/.venv`, installs the backend package with its
+`packaging` extra (`pyinstaller>=6.0`), and runs PyInstaller (`--onefile`)
+against `backend/app/sidecar.py` — never raw `uvicorn` — producing
+`backend/dist/opencleaner-backend`. The script does not start the server; it
+only builds the binary. The binary itself was verified on macOS (arm64,
+Python 3.14) by running `opencleaner-backend --help`, which prints argparse
+usage and exits 0 without binding a port.
+
+`backend/build/`, `backend/dist/`, and `*.spec` are git-ignored — the binary
+is never committed. Windows and Linux builds are **not yet verified**; run
+the same script on those platforms to produce `opencleaner-backend.exe` /
+`opencleaner-backend` respectively (PyInstaller output is platform-native,
+so cross-compilation isn't supported — build on each target OS).
+
+Tauri sidecar spawning is still not implemented — this script only produces
+the binary; nothing places it next to the Tauri bundle or launches it.
+
 ## Windows build notes
 
 1. **Python environment** (builder machine):
 
    - Install Python 3.10+.
-   - `pip install -e backend/` or produce a **PyInstaller** / **Nuitka** one-folder or one-file artifact that runs the sidecar entrypoint (`backend/app/sidecar.py`, `python -m app.sidecar`), which serves the same app as:
+   - Run `scripts/bundle_backend.sh` (or the equivalent PyInstaller command by hand) to produce an artifact that runs the sidecar entrypoint (`backend/app/sidecar.py`), which serves the same app as:
 
      `uvicorn app.main:app --host 127.0.0.1 --port 8742`
 
-   - Name the artifact `opencleaner-backend.exe` (convention).
+   - Name the artifact `opencleaner-backend.exe` (convention). **Not yet verified on Windows** — verified only on macOS so far (see above).
 
 2. **Tauri**:
 
@@ -65,17 +88,17 @@ Data lives under the user profile (`~/.opencleaner` / `%USERPROFILE%\.opencleane
 
 4. **Elevation**: Most OpenCleaner actions avoid admin. Optional `powercfg` calls may fail without elevation; the app must tolerate that.
 
-## macOS / Linux (future)
+## macOS / Linux
 
-- Same sidecar idea: ship a `opencleaner-backend` binary (PyInstaller or native build).
+- Same sidecar idea: ship a `opencleaner-backend` binary. `scripts/bundle_backend.sh` (PyInstaller) is verified on macOS (see above); Linux build is untested but should work with the same script since PyInstaller supports it.
 - macOS: Gatekeeper / notarization if you distribute outside your org; use hardened runtime per Apple docs.
 - Linux: prefer distro-neutral tarballs or Flatpak; keep port on loopback.
 
 ## Scripts in this repo
 
 - `scripts/run_backend.sh` — developer backend runner.
-- `backend/app/sidecar.py` — importable, testable entrypoint (`main()`) that serves the FastAPI app via uvicorn on `127.0.0.1:8742` by default; the intended target for a future PyInstaller/Nuitka build. Importing it never starts a server.
-- `scripts/bundle_backend_stub.sh` — **outline only**: documents the PyInstaller command you might run on a builder host, targeting `app.sidecar` (edit paths before use; PyInstaller packaging itself is not yet verified).
+- `backend/app/sidecar.py` — importable, testable entrypoint (`main()`) that serves the FastAPI app via uvicorn on `127.0.0.1:8742` by default; the PyInstaller build target. Importing it never starts a server.
+- `scripts/bundle_backend.sh` — **real build script**, verified on macOS: builds `backend/dist/opencleaner-backend` via PyInstaller against `app/sidecar.py`. See "Building the backend sidecar binary" above.
 
 ## Known limitations
 
