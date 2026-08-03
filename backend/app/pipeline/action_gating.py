@@ -5,8 +5,10 @@ from app.engine.protected_registry import (
     is_protected_windows_service,
     suspend_allowed_by_policy,
 )
+from app.models.enums import ActionPolicy, ProcessControlCategory
 from app.models.scan_item import ProvenanceRecord, ScanItem, utc_now_iso
 from app.models.schemas import ItemType, RiskBucket
+
 def apply_action_gating(item: ScanItem) -> ScanItem:
     """
     Final authority: cleanup_eligible / performance_eligible / protected flags.
@@ -45,6 +47,22 @@ def apply_action_gating(item: ScanItem) -> ScanItem:
         else:
             evidence.append(f"performance_blocked:{reason}")
 
+    # Gating may only tighten the classifier, never widen it: anything protected here is
+    # blocked in process_control too, even if the classifier reached a softer verdict.
+    pc = item.process_control
+    if protected and pc.applicable and pc.action_policy is not ActionPolicy.blocked:
+        pc = pc.model_copy(
+            update={
+                "category": ProcessControlCategory.essential,
+                "action_policy": ActionPolicy.blocked,
+                "safe_to_end": False,
+                "safe_to_suspend": False,
+                "safe_to_disable_startup": False,
+                "blocked_reason": pc.blocked_reason or "Protected — no automated stop, suspend, or disable.",
+                "evidence": [*pc.evidence, "action_gating:protected_clamp"],
+            }
+        )
+
     rec_warnings = list(item.recommendations.warnings)
     if protected:
         rec_warnings.append("Protected — no automated stop, suspend, or delete.")
@@ -66,6 +84,7 @@ def apply_action_gating(item: ScanItem) -> ScanItem:
             "protected": protected,
             "cleanup_eligible": cleanup_eligible,
             "performance_eligible": performance_eligible,
+            "process_control": pc,
             "recommendations": item.recommendations.model_copy(
                 update={
                     "primary": item.recommendations.primary

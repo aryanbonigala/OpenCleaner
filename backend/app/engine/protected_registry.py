@@ -48,11 +48,16 @@ _PROTECTED_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Security / AV
     re.compile(
         r"(?i)antimalware|defender|msmpeng|securityhealth|smartscreen|"
-        r"sentinel|crowdstrike|carbon|cybereason|mssense|bdagent|avast|avg|mcshield|"
+        r"sentinel|crowdstrike|csfalcon|carbon|cybereason|mssense|bdagent|avast|avg|mcshield|"
         r"kaspersky|eset|bitdefender|sophos|symantec|trellix|elastic-endpoint|f-secure"
     ),
     # Anticheat
-    re.compile(r"(?i)easyanti|battleye|vac|nprotect|xigncode|punkbuster|fvanticheat"),
+    # `beservice`/`bedaisy` are BattlEye's shipped binaries; `vgc`/`vgtray`/`vanguard` are Riot's.
+    # Ending either mid-game gets the player kicked or flagged, so they belong in the hard deny.
+    re.compile(
+        r"(?i)easyanti|battleye|bedaisy|beservice|vac|nprotect|xigncode|punkbuster|"
+        r"fvanticheat|vgc\.exe|vgtray|vanguard"
+    ),
     # GPU / display
     re.compile(
         r"(?i)nvd?display|nvcontainer|nvidia|nvbackend|amdow|atieclxx|radeon|"

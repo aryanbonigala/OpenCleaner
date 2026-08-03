@@ -63,6 +63,35 @@ classifier stage fills it in: nothing is considered safe to end, suspend, or dis
 and `report_only` means "display it, offer no action". An already-classified block is never
 reset by later construction or `model_copy` updates.
 
+### Who fills it in
+
+The `process_control` stage (`app/engine/process_classifier.py` → `app/engine/process_action_policy.py`)
+runs after rules + intelligence and before action gating. Hard denies are delegated to
+`app/engine/protected_registry.py`; the classifier keeps no pattern list of its own.
+
+| Input signal | → `category` / `action_policy` |
+| --- | --- |
+| `is_hard_protected_process()` / `is_protected_windows_service()` | `essential` / `blocked` |
+| `RiskBucket.risky_system_critical`, or intelligence `rules_protect` | `essential` / `blocked` |
+| Intelligence category ∈ {Windows core, Windows shell, Windows graphics, Security, GPU driver, Audio, Anticheat}, or `risk_level == critical` | `essential` / `blocked` |
+| Browser or shell executable | `important` / `explicit_selection_required` |
+| Intelligence `risk_level == high` | `important` / `report_only` |
+| Intelligence `safe_to_stop == false` | `important` (or `gaming_fps_impact`) / `explicit_selection_required` |
+| Intelligence `safe_to_stop == true` + low/medium risk, `gaming_impact` ∈ {medium, high, critical} | `gaming_fps_impact` / `preview_required`, `safe_to_suspend = true` |
+| Intelligence `safe_to_stop == true` + low/medium risk | `non_essential` / `preview_required`, `safe_to_suspend = true` |
+| Anything else | `unknown` / `report_only` |
+| Non-process item types (files, browser profiles, duplicates, orphans) | `not_applicable` / `unsupported` |
+
+Current limits of this layer, deliberate rather than accidental:
+
+- `safe_to_end` and `safe_to_disable_startup` are **never** set to `true`. There is no end or
+  startup-disable execution path yet, and the flag must not promise one.
+- Services and scheduled tasks are **report-only**; they classify but expose no action.
+- `safe_to_suspend = true` is a classification, not an authorization — the actual suspend still
+  passes `suspend_allowed_by_policy()` at action time.
+- Action gating may only *tighten* the result: anything it marks `protected` is clamped back to
+  `essential` / `blocked` with every `safe_to_*` flag cleared.
+
 Items stored before this block existed rehydrate with defaults, so `applicable` is derived and
 the action flags stay `false`.
 

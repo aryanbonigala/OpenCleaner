@@ -44,7 +44,7 @@ def test_pipeline_provenance_stages() -> None:
     base = normalize_scored_item(_proc())
     out = run_reasoning_pipeline(base, allow=[], block=[])
     stages = [p.stage for p in out.provenance]
-    assert stages == ["rules", "intelligence", "ml", "explanation", "action_gating"]
+    assert stages == ["rules", "intelligence", "ml", "explanation", "process_control", "action_gating"]
 
 
 def test_rules_precedence_over_intelligence_bucket() -> None:

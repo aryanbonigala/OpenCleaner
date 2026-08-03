@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.engine.ml_ranker import optional_sklearn_blend, train_synthetic_calibrator_if_available
+from app.engine.process_classifier import stage_process_control
 from app.engine.rules_engine import classify_item, merge_rules_into_item
 from app.models.scan_item import (
     ExplanationBlock,
@@ -150,7 +151,7 @@ def run_reasoning_pipeline(
 ) -> ScanItem:
     """
     Deterministic stage order:
-    rules → intelligence → ML (metrics only) → explanation → action gating
+    rules → intelligence → ML (metrics only) → explanation → process control → action gating
     """
     out = stage_rules(item, allow, block)
     out = stage_intelligence(out)
@@ -176,6 +177,7 @@ def run_reasoning_pipeline(
         )
 
     out = stage_explanation(out)
+    out = stage_process_control(out)
     out = apply_action_gating(out)
     return out
 

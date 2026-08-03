@@ -771,7 +771,23 @@ Shipped: enums + `ProcessControl` block + `SCAN_SCHEMA_VERSION = 2` + mirrored T
 - **Gate:** full existing suite green; a schema-v1 stored payload still loads
 - **Parallel:** with Phase A
 
-### Phase C — Process classification and protected gates
+### Phase C — Process classification and protected gates — **partially shipped**
+
+Shipped: `backend/app/engine/process_action_policy.py` (`classify_process_control(item) -> ProcessControl`,
+the single mapper, delegating every hard deny to `protected_registry`),
+`backend/app/engine/process_classifier.py` (`stage_process_control`, wired into
+`run_reasoning_pipeline` between explanation and action gating), the protected clamp in
+`action_gating.py`, the portable-attr fix + new facts in `scanners/processes.py`, and
+`backend/tests/test_process_classifier.py` + `backend/tests/test_process_scanner.py`.
+
+Note: the module split is the inverse of §6.3 above — `process_action_policy.py` holds the
+classification map and `process_classifier.py` is the thin pipeline stage. `end_allowed()` /
+`suspend_allowed()` / `resume_allowed()` are **not** implemented; they belong with the execute
+path in Phase H.
+
+Not shipped in this phase: `safe_to_end` and `safe_to_disable_startup` are never granted (no
+execution path exists to justify them), publisher/signature/elevation/integrity facts are
+reported as `unknown` rather than probed, and `windows_intelligence.json` gained no new fields.
 
 - **Files:** new `backend/app/engine/process_classifier.py`, new
   `backend/app/engine/process_action_policy.py`, `backend/app/pipeline/reasoning.py`,
