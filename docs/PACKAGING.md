@@ -45,7 +45,7 @@ Data lives under the user profile (`~/.opencleaner` / `%USERPROFILE%\.opencleane
 1. **Python environment** (builder machine):
 
    - Install Python 3.10+.
-   - `pip install -e backend/` or produce a **PyInstaller** / **Nuitka** one-folder or one-file artifact that runs:
+   - `pip install -e backend/` or produce a **PyInstaller** / **Nuitka** one-folder or one-file artifact that runs the sidecar entrypoint (`backend/app/sidecar.py`, `python -m app.sidecar`), which serves the same app as:
 
      `uvicorn app.main:app --host 127.0.0.1 --port 8742`
 
@@ -74,7 +74,8 @@ Data lives under the user profile (`~/.opencleaner` / `%USERPROFILE%\.opencleane
 ## Scripts in this repo
 
 - `scripts/run_backend.sh` — developer backend runner.
-- `scripts/bundle_backend_stub.sh` — **outline only**: documents the PyInstaller command you might run on a Windows CI host (edit paths before use).
+- `backend/app/sidecar.py` — importable, testable entrypoint (`main()`) that serves the FastAPI app via uvicorn on `127.0.0.1:8742` by default; the intended target for a future PyInstaller/Nuitka build. Importing it never starts a server.
+- `scripts/bundle_backend_stub.sh` — **outline only**: documents the PyInstaller command you might run on a builder host, targeting `app.sidecar` (edit paths before use; PyInstaller packaging itself is not yet verified).
 
 ## Known limitations
 
