@@ -147,3 +147,24 @@ tested readiness primitive to call instead of inventing one under bundling press
 - **Net**: the Tauri scaffold compiles cleanly end-to-end. The Rust-toolchain blocker from the
   prior baseline is resolved. Sidecar spawning remains unimplemented (out of scope here) — see
   §6/§7 above, which are otherwise unaffected by this update.
+
+## 10. `block v0.1.6` future-incompatibility warning — triaged, deferred (at `d13def1`)
+
+- **Dependency path**: `opencleaner_ai` → `tauri v1.8.3` → `tauri-runtime-wry v0.14.11` →
+  `wry v0.24.12` → `tao v0.16.11` → `cocoa v0.24.1` → `block v0.1.6`. `block` is a transitive
+  macOS Cocoa/Objective-C FFI dependency pulled in by Tauri's own runtime stack, not a direct
+  dependency of this crate.
+- **Warning**: `static of uninhabited type` on `block`'s `_NSConcreteStackBlock` static
+  (`cargo report future-incompatibilities`, rustc issue
+  [#74840](https://github.com/rust-lang/rust/issues/74840)) — accepted today, will become a hard
+  error in a future Rust release.
+- **Checked for a fix**: `cargo update -p block --dry-run` locks 0 packages (already at the
+  latest compatible version); `cargo search block` confirms `0.1.6` is the only version of the
+  `block` crate ever published on crates.io. No lockfile-only or minor/patch update exists.
+- **Classification: no safe fix without a Tauri/Wry/Tao major upgrade.** Resolving this requires
+  `cocoa`/`tao`/`wry` upstream to migrate off the abandoned `block` crate (e.g. to `block2`),
+  which in this dependency graph is tied to a newer `wry`/`tao` release line pulled in only by a
+  Tauri 2.x major bump — out of scope per this task's constraints (no Tauri major upgrade, no
+  product-code changes).
+- **Deferred**: no `Cargo.toml`/`Cargo.lock` change made. The warning is harmless today (lint, not
+  a build error) and re-check when a Tauri 2.x migration is otherwise warranted.
