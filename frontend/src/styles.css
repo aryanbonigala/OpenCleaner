@@ -585,6 +585,118 @@ tr.row-unknown-svc {
   gap: 8px;
 }
 
+/* Process Control */
+.process-dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+}
+
+.process-dashboard-header h2 {
+  margin: 0 0 4px;
+}
+
+.process-category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.process-category-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 3px solid var(--border);
+}
+
+.process-category-card strong {
+  font-size: 20px;
+}
+
+.process-category-desc {
+  line-height: 1.35;
+}
+
+.process-category-essential {
+  border-left-color: var(--danger);
+}
+
+.process-category-important {
+  border-left-color: var(--warn);
+}
+
+.process-category-non_essential {
+  border-left-color: var(--ok);
+}
+
+.process-category-gaming_fps_impact {
+  border-left-color: var(--accent);
+}
+
+.process-category-unknown {
+  border-left-color: var(--muted);
+}
+
+.process-dashboard-layout {
+  padding: 0 12px 12px;
+}
+
+.process-dashboard-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.process-table-wrap {
+  max-height: 420px;
+}
+
+.process-reason-cell {
+  max-width: 260px;
+}
+
+.process-row-locked td {
+  opacity: 0.6;
+}
+
+.process-row-open td {
+  background: rgba(109, 211, 255, 0.05);
+}
+
+.pill.process-safety-locked {
+  border-color: rgba(255, 123, 123, 0.4);
+  color: var(--danger);
+}
+
+.pill.process-safety-unknown {
+  border-color: rgba(255, 198, 109, 0.55);
+  color: var(--warn);
+}
+
+.pill.process-safety-report {
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.pill.process-safety-explicit {
+  border-color: rgba(255, 198, 109, 0.55);
+  color: var(--warn);
+}
+
+.pill.process-safety-preview {
+  border-color: rgba(125, 255, 179, 0.4);
+  color: var(--ok);
+}
+
+.process-unavailable-facts {
+  margin-top: 8px;
+}
+
 @media (max-width: 1100px) {
   .layout {
     grid-template-columns: 1fr;

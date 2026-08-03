@@ -17,16 +17,24 @@ import { CleanupSummary } from "./components/CleanupSummary";
 import { Dashboard } from "./components/Dashboard";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { FindingDetails } from "./components/FindingDetails";
+import { ProcessControlDashboard } from "./components/ProcessControlDashboard";
 import { QuarantineManager, QuarantineEntry } from "./components/QuarantineManager";
 import { ScanProgress } from "./components/ScanProgress";
 import { ScanResults } from "./components/ScanResults";
 import { Settings } from "./components/Settings";
 import { defaultSelectedIds } from "./selection";
 
-type View = "dashboard" | "results" | "cleanup_review" | "cleanup_summary" | "quarantine" | "settings";
+type View =
+  | "processes"
+  | "dashboard"
+  | "results"
+  | "cleanup_review"
+  | "cleanup_summary"
+  | "quarantine"
+  | "settings";
 
 export default function App() {
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>("processes");
   const [mode, setMode] = useState<PermissionMode>("read_only");
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
   const [version, setVersion] = useState<string | null>(null);
@@ -114,7 +122,7 @@ export default function App() {
     }
   }
 
-  async function runScan() {
+  async function runScan(afterView: View = "results") {
     setError(null);
     setScanning(true);
     setPreview(null);
@@ -123,7 +131,7 @@ export default function App() {
       const s = await client.scan();
       setScan(s);
       setSelectedIds(defaultSelectedIds(s.items, advancedMode));
-      setView("results");
+      setView(afterView);
     } catch (e) {
       setError(parseApiError(e));
     } finally {
@@ -279,6 +287,9 @@ export default function App() {
           <span>Local review · quarantine-first cleanup</span>
         </div>
         <nav className="main-nav">
+          <button type="button" disabled={navDisabled} className={view === "processes" ? "active" : ""} onClick={() => setView("processes")}>
+            Process Control
+          </button>
           <button type="button" disabled={navDisabled} className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}>
             Dashboard
           </button>
@@ -305,12 +316,16 @@ export default function App() {
       {cleaning ? <CleanupProgress /> : null}
 
       <main className="flow-main">
+        {view === "processes" ? (
+          <ProcessControlDashboard scan={scan} scanning={scanning} onRunScan={() => void runScan("processes")} />
+        ) : null}
+
         {view === "dashboard" ? (
           <Dashboard
             scan={scan}
             version={version}
             scanning={scanning}
-            onRunScan={runScan}
+            onRunScan={() => void runScan()}
             onViewResults={() => setView("results")}
             onQuarantine={() => setView("quarantine")}
           />

@@ -252,6 +252,57 @@ export interface ExplainResponse {
   local_ml_note: string;
 }
 
+/** Read-only process-control inventory from the latest scan. `message` is set when none exists. */
+export interface ProcessInventoryResponse {
+  scan_id?: string | null;
+  generated_at?: string | null;
+  platform?: string | null;
+  items_count: number;
+  counts: Record<string, number>;
+  items: ScanItem[];
+  warnings: string[];
+  message?: string | null;
+}
+
+/** GET /api/processes/{pid} — latest-scan lookup, no live OS inspection. */
+export interface ProcessDetailResponse {
+  item: ScanItem;
+  process_control: ProcessControl;
+  explanation: ExplanationBlock;
+  safety_summary: string;
+  blocked_reason?: string | null;
+  scanner_facts: Record<string, unknown>;
+}
+
+export interface ProcessPreviewEndRequest {
+  item_ids: string[];
+  confirm_explicit_selection?: boolean;
+}
+
+export type ProcessPreviewStatus = "would_allow" | "blocked" | "skipped";
+export type ProcessPreviewRecommendedAction =
+  | "suspend_preview_only"
+  | "end_preview_only"
+  | "report_only"
+  | "blocked";
+
+export interface ProcessPreviewEndItem {
+  id: string;
+  display_name: string;
+  pid?: number | null;
+  status: ProcessPreviewStatus;
+  recommended_action: ProcessPreviewRecommendedAction;
+  reason: string;
+  process_control?: ProcessControl | null;
+}
+
+export interface ProcessPreviewEndResponse {
+  preview_id?: string | null;
+  counts: Record<string, number>;
+  items: ProcessPreviewEndItem[];
+  disclaimer: string;
+}
+
 export function parseApiError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   try {
@@ -341,6 +392,13 @@ export const client = {
     api("/api/feedback", {
       method: "POST",
       body: JSON.stringify({ item, decision, weight: 1.0 }),
+    }),
+  getProcesses: () => api<ProcessInventoryResponse>("/api/processes"),
+  getProcessByPid: (pid: number) => api<ProcessDetailResponse>(`/api/processes/${pid}`),
+  previewEndProcesses: (item_ids: string[], confirm_explicit_selection = false) =>
+    api<ProcessPreviewEndResponse>("/api/processes/preview-end", {
+      method: "POST",
+      body: JSON.stringify({ item_ids, confirm_explicit_selection }),
     }),
   safetySummary: () =>
     api<{
