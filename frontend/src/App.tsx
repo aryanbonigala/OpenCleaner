@@ -37,11 +37,21 @@ type View =
   | "quarantine"
   | "settings";
 
+type BackendState = "checking" | "ready" | "unreachable";
+
+const HEALTH_MAX_ATTEMPTS = 5;
+const HEALTH_RETRY_DELAY_MS = 1500;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function App() {
   const [view, setView] = useState<View>("processes");
   const [mode, setMode] = useState<PermissionMode>("read_only");
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
   const [version, setVersion] = useState<string | null>(null);
+  const [backendState, setBackendState] = useState<BackendState>("checking");
 
   const [includeRecycleBin, setIncludeRecycleBin] = useState(false);
   const advancedMode = userSettings?.risk_visibility === "advanced";
@@ -83,11 +93,7 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    client
-      .health()
-      .then((h) => setVersion(h.version))
-      .catch(() => undefined);
+  const loadStartupData = useCallback(() => {
     client
       .getMode()
       .then((m) => setMode(m.mode))
@@ -105,6 +111,28 @@ export default function App() {
         }
       })
       .catch(() => undefined);
+  }, []);
+
+  const checkBackend = useCallback(async () => {
+    setBackendState("checking");
+    for (let attempt = 0; attempt < HEALTH_MAX_ATTEMPTS; attempt++) {
+      try {
+        const h = await client.health();
+        setVersion(h.version);
+        setBackendState("ready");
+        loadStartupData();
+        return;
+      } catch {
+        if (attempt < HEALTH_MAX_ATTEMPTS - 1) await sleep(HEALTH_RETRY_DELAY_MS);
+      }
+    }
+    setBackendState("unreachable");
+  }, [loadStartupData]);
+
+  useEffect(() => {
+    void checkBackend();
+    // Bounded retry loop runs once on mount; Retry button re-triggers it explicitly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -282,6 +310,36 @@ export default function App() {
   }
 
   const navDisabled = scanning || cleaning;
+
+  if (backendState !== "ready") {
+    return (
+      <div className="app flow-app">
+        <header className="topbar">
+          <div className="brand">
+            <strong>OpenCleaner</strong>
+            <span>Local review · quarantine-first cleanup</span>
+          </div>
+        </header>
+        <main className="flow-main">
+          <div className="backend-wait" role="status">
+            {backendState === "checking" ? (
+              <p>Waiting for backend…</p>
+            ) : (
+              <>
+                <p>
+                  <strong>Backend not reachable.</strong> Start it manually with{" "}
+                  <code>./scripts/run_backend.sh</code>, then retry.
+                </p>
+                <button type="button" onClick={() => void checkBackend()}>
+                  Retry
+                </button>
+              </>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="app flow-app">

@@ -327,6 +327,17 @@ tr.row-unknown-svc {
   color: var(--accent);
 }
 
+.backend-wait {
+  margin: 12px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
 .error-banner {
   margin: 0 12px;
   padding: 10px 12px;
