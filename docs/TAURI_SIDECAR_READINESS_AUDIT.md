@@ -131,3 +131,19 @@ tested readiness primitive to call instead of inventing one under bundling press
   rather than surface a build-config blocker.
 - **Net**: Tauri scaffold compile status is still unverified in this repo, not because of a config
   or code problem, but because no Rust toolchain is installed on the machine that ran this audit.
+
+## 9. Build verification update (at `a8e0e56`, "Document Tauri build baseline")
+
+- **Node** `v22.23.2` / **npm** `10.9.8` — aligned to the `.nvmrc`/`engines` pin via `nvm use`.
+- **Rust**: installed via official rustup (`https://sh.rustup.rs`, stable channel, user-level
+  under `~/.rustup`/`~/.cargo`, no sudo/Homebrew). `rustc 1.97.1`, `cargo 1.97.1`,
+  `rustup 1.29.0`, active toolchain `stable-aarch64-apple-darwin`.
+- **`frontend/npm run build`**: succeeds (`tsc --noEmit && vite build`, ~330ms).
+- **`npm run tauri -- --version`**: succeeds — `tauri-cli 1.6.3`.
+- **`npm run tauri build`**: succeeds. Release profile compiled clean in ~41s, produced
+  `frontend/src-tauri/target/release/OpenCleaner AI` (unsigned dev binary). No bundle artifact
+  was produced, consistent with `bundle.active: false`. One harmless
+  future-incompatibility warning from a transitive dependency (`block v0.1.6`); no errors.
+- **Net**: the Tauri scaffold compiles cleanly end-to-end. The Rust-toolchain blocker from the
+  prior baseline is resolved. Sidecar spawning remains unimplemented (out of scope here) — see
+  §6/§7 above, which are otherwise unaffected by this update.
