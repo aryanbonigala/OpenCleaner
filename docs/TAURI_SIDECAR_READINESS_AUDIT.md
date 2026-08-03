@@ -168,3 +168,46 @@ tested readiness primitive to call instead of inventing one under bundling press
   product-code changes).
 - **Deferred**: no `Cargo.toml`/`Cargo.lock` change made. The warning is harmless today (lint, not
   a build error) and re-check when a Tauri 2.x migration is otherwise warranted.
+
+## 11. macOS dev-checkout spawn prototype implemented (at this commit)
+
+- Implements §4's design: `frontend/src-tauri/src/main.rs` now spawns
+  `backend/dist/opencleaner-backend` (dev-checkout path, resolved from
+  `CARGO_MANIFEST_DIR`) on startup if `GET 127.0.0.1:8742/health` isn't
+  already responding; stores the `Child` in managed state; kills only that
+  child on `RunEvent::ExitRequested`. No new Cargo dependency — health check
+  uses a raw `TcpStream` HTTP/1.1 request, no Tauri shell/process-execution
+  feature or allowlist entry was enabled (`std::process::Command` only, per
+  Cargo.toml unchanged). See `docs/PACKAGING.md` "macOS dev-checkout spawn
+  prototype" for full behavior.
+- Also added `frontend/src-tauri/icons/icon.png` (small placeholder PNG):
+  `tauri::generate_context!()` panics at compile time without an icon file
+  present at the conventional path, regardless of `bundle.active` — this was
+  true on the unmodified template too (verified by stashing the sidecar diff
+  and re-running `cargo check`), so it's a pre-existing gap unrelated to
+  spawn logic, fixed here only because it blocked `cargo check`/`tauri
+  build` from running at all.
+- **Verified**: `cargo check`, `cargo test` (2 unit tests: binary path
+  resolution, already-running-vs-spawn decision), `npm run build`, `npm run
+  tauri build` — all pass. Runtime smoke (running the built release binary
+  directly, not `tauri dev`): confirmed no double-spawn when a real backend
+  (`scripts/run_backend.sh`) is already listening on 8742, and confirmed
+  that backend is left running after the Tauri process exits. Confirmed the
+  bounded health-wait does not hang when the child dies immediately (see
+  gap below) — it times out and logs, and the frontend readiness gate still
+  reports "backend not reachable" independently.
+- **Unverified**: killing a child that is still alive and healthy at exit
+  time (the only reproducible smoke run had the frozen backend binary exit
+  immediately on its own due to the gap below, so there was nothing alive
+  left to kill by the time `ExitRequested` fired).
+- **Gap found, out of scope to fix here**: `backend/dist/opencleaner-backend`
+  (built via `bundle_backend.sh`) fails at actual startup —
+  `uvicorn.run("app.main:app", ...)` cannot import `app.main` inside the
+  frozen binary (`ERROR: Could not import module "app.main"`), reproduced
+  running the binary directly outside Tauri. `--help` still exits 0 as
+  previously verified (argparse only, never reaches `uvicorn.run`). This
+  means the macOS-verified checkbox in §"Platform build matrix" above only
+  covers `--help`, not real server startup — worth re-auditing there
+  separately. Not touched in this change: fixing it means editing
+  `backend/app/sidecar.py` or the PyInstaller invocation, which is backend
+  packaging work outside this task's Rust/Tauri scope.

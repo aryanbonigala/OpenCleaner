@@ -59,8 +59,42 @@ is never committed. PyInstaller output is platform-native (no
 cross-compilation) — each target OS must run `scripts/bundle_backend.sh`
 itself to produce its own binary.
 
-Tauri sidecar spawning is still not implemented — this script only produces
-the binary; nothing places it next to the Tauri bundle or launches it.
+## macOS dev-checkout spawn prototype
+
+`frontend/src-tauri/src/main.rs` now spawns the backend on macOS when running
+from a dev checkout: on startup it checks `GET 127.0.0.1:8742/health`; if
+already responding, it does not spawn a second backend. Otherwise it looks
+for `backend/dist/opencleaner-backend` at `<repo root>/backend/dist/` (i.e.
+built via `./scripts/bundle_backend.sh`) and spawns it via
+`std::process::Command`, redirecting stdout/stderr to
+`~/.opencleaner/logs/sidecar.log`. It then polls `/health` with a bounded
+retry/backoff (20 attempts, 250ms apart) before continuing; the existing
+frontend readiness gate still reports "backend not reachable" on failure. On
+`ExitRequested`, only the child process this app instance spawned is killed —
+a pre-existing backend it didn't start is left alone.
+
+This is **not** wired into packaged-app resource bundling: the binary path is
+resolved from `CARGO_MANIFEST_DIR` at compile time (a dev-checkout path), not
+from `tauri::api::path::resource_dir()`. A packaged `.app`/installer would
+need the binary placed under Tauri's bundled resources and the path
+resolution updated accordingly — future work. Verified on macOS only;
+Windows and Linux spawn are unverified (Linux may work as unmodified generic
+Rust, but this has not been tested).
+
+Known gap found while smoke-testing this prototype: the PyInstaller
+`--onefile` binary produced by `bundle_backend.sh` fails at runtime with
+`ERROR: Could not import module "app.main"` when uvicorn loads
+`"app.main:app"` by string inside the frozen binary — reproduced even when
+running the binary directly (not through Tauri), from multiple working
+directories. `--help` still exits 0 (verified above), but actual server
+startup via the frozen binary is unverified/broken; the manual dev workflow
+(`scripts/run_backend.sh`, unfrozen `uvicorn`) is unaffected. This is a
+PyInstaller/uvicorn packaging issue in `bundle_backend.sh`/`sidecar.py`, not
+in the Rust spawn logic — out of scope for this change, left for a follow-up.
+
+Tauri sidecar spawning is otherwise still not implemented for packaged
+builds — this script only produces the binary; nothing places it next to the
+Tauri bundle or launches it there.
 
 ### Platform build matrix
 
