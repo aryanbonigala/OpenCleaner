@@ -7,7 +7,7 @@ from pathlib import Path
 from app.models.schemas import ItemType, RiskBucket, ScoredItem
 from app.platform.detect import OSFamily, detect_os
 from app.scanners import scan_limits as L
-from app.utils.fs import bounded_walk, walk_deadline
+from app.utils.fs import bounded_walk, stable_path_id, walk_deadline
 
 
 def _win_startup_registry() -> list[ScoredItem]:
@@ -69,7 +69,9 @@ def _win_startup_folders() -> list[ScoredItem]:
         def on_file(p: Path) -> None:
             items.append(
                 ScoredItem(
-                    id=f"startup-folder-{p.name}",
+                    # Keyed on the full path, not the name: the same shortcut in both
+                    # the per-user and all-users Startup folders is two real entries.
+                    id=stable_path_id("startup-folder", p),
                     category="startup",
                     item_type=ItemType.startup_entry,
                     name=p.name,

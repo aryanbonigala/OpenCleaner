@@ -2,11 +2,29 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+
+_ID_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def stable_path_id(prefix: str, path: Path) -> str:
+    """Deterministic id for a filesystem item: `{prefix}-{name}-{digest}`.
+
+    A sibling index made ids shift whenever a neighbouring file was added or removed,
+    so the same file changed identity between scans. blake2b over the whole path is
+    stable across processes (unlike the salted builtin `hash()`), and keeps two files
+    sharing a basename in different directories apart. os.fsencode survives filenames
+    that are not valid UTF-8, which `str.encode()` raises on. The name is kept in the
+    id purely so the digests are readable while debugging.
+    """
+    digest = hashlib.blake2b(os.fsencode(path), digest_size=6).hexdigest()
+    return f"{prefix}-{_ID_UNSAFE.sub('_', path.name)[:48]}-{digest}"
 
 
 @dataclass

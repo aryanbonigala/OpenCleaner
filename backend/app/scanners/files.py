@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import os
 import time
 from collections import defaultdict
@@ -15,6 +14,7 @@ from app.utils.fs import (
     is_probably_locked,
     path_depth,
     sha256_file,
+    stable_path_id,
     try_file_size,
     walk_deadline,
 )
@@ -54,16 +54,13 @@ def scan_temp_and_cache() -> list[ScoredItem]:
     if not temp or not temp.exists():
         return items
 
-    idx = 0
-
     def on_file(p: Path) -> None:
-        nonlocal idx
         try:
             sz = try_file_size(p) or 0
             st = p.stat()
             items.append(
                 ScoredItem(
-                    id=f"temp-{p.name}-{idx}",
+                    id=stable_path_id("temp", p),
                     category="temp_cache",
                     item_type=ItemType.file_or_folder,
                     name=p.name,
@@ -80,7 +77,6 @@ def scan_temp_and_cache() -> list[ScoredItem]:
                     reasoning="Temp folder candidate — rules mark low risk when not locked.",
                 )
             )
-            idx += 1
         except OSError:
             pass
 
@@ -108,10 +104,8 @@ def scan_downloads() -> list[ScoredItem]:
     if not dl or not dl.exists():
         return items
     exts = {".msi", ".exe", ".dmg", ".pkg", ".zip", ".7z", ".tar", ".gz"}
-    idx = 0
 
     def on_file(p: Path) -> None:
-        nonlocal idx
         try:
             suf = p.suffix.lower()
             hint = "installer_residual" if suf in exts else "downloads_general"
@@ -119,7 +113,7 @@ def scan_downloads() -> list[ScoredItem]:
             st = p.stat()
             items.append(
                 ScoredItem(
-                    id=f"dl-{p.name}-{idx}",
+                    id=stable_path_id("dl", p),
                     category="downloads",
                     item_type=ItemType.file_or_folder,
                     name=p.name,
@@ -135,7 +129,6 @@ def scan_downloads() -> list[ScoredItem]:
                     reasoning="Downloads folder inventory — duplicates/old installers often reclaim space.",
                 )
             )
-            idx += 1
         except OSError:
             pass
 
@@ -162,15 +155,12 @@ def scan_desktop_clutter() -> list[ScoredItem]:
     desk = _user_special_dirs().get("desktop")
     if not desk or not desk.exists():
         return items
-    idx = 0
-
     def on_file(p: Path) -> None:
-        nonlocal idx
         try:
             sz = try_file_size(p) or 0
             items.append(
                 ScoredItem(
-                    id=f"desk-{p.name}-{idx}",
+                    id=stable_path_id("desk", p),
                     category="desktop",
                     item_type=ItemType.file_or_folder,
                     name=p.name,
@@ -185,7 +175,6 @@ def scan_desktop_clutter() -> list[ScoredItem]:
                     reasoning="Desktop files are user-visible — confirm moves instead of deletion.",
                 )
             )
-            idx += 1
         except OSError:
             pass
 
@@ -239,9 +228,7 @@ def scan_large_unused_candidates() -> list[ScoredItem]:
     for p, sz in candidates[:15]:
         items.append(
             ScoredItem(
-                # blake2b, not the builtin str hash: that one is salted per process,
-                # so the same file got a brand new id on every scan.
-                id=f"large-{hashlib.blake2b(str(p).encode(), digest_size=6).hexdigest()}",
+                id=stable_path_id("large", p),
                 category="large_files",
                 item_type=ItemType.file_or_folder,
                 name=p.name,

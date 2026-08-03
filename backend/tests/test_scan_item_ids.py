@@ -13,12 +13,16 @@ from __future__ import annotations
 import asyncio
 import re
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app import scanners
+from app.scanners import files
+from app.utils.fs import stable_path_id
 from app.config import get_settings
 from app.db import db_conn, init_db
 from app.main import app
@@ -197,6 +201,94 @@ def test_no_scanner_builds_ids_from_the_salted_builtin_hash():
         if re.search(r"(?<![\w.])hash\(", p.read_text(encoding="utf-8"))
     ]
     assert offenders == []
+
+
+def test_no_scanner_builds_ids_from_a_sibling_index():
+    """`dl-report.pdf-3` renamed itself whenever a neighbouring file appeared, so the
+    same file was a different item on the next scan. Ids come from the path now."""
+    offenders = [
+        p.name
+        for p in Path(scanners.__file__).parent.glob("*.py")
+        if re.search(r"id=f\"[^\"]*\{idx\}", p.read_text(encoding="utf-8"))
+    ]
+    assert offenders == []
+
+
+# --- stable file ids --------------------------------------------------------
+
+
+def _scan_downloads_in(tmp_path, monkeypatch) -> dict[str, str]:
+    """Run the downloads scanner against tmp_path; returns {filename: item id}."""
+    monkeypatch.setattr(
+        files, "_user_special_dirs", lambda: {"home": tmp_path, "downloads": tmp_path}
+    )
+    return {Path(i.path).name: i.id for i in files.scan_downloads()}
+
+
+def test_the_same_file_keeps_its_id_across_repeated_scans(tmp_path, monkeypatch):
+    (tmp_path / "report.pdf").write_bytes(b"x")
+    first = _scan_downloads_in(tmp_path, monkeypatch)
+    second = _scan_downloads_in(tmp_path, monkeypatch)
+    assert first == second
+    assert first["report.pdf"].startswith("dl-report.pdf-")
+
+
+def test_adding_an_alphabetically_earlier_sibling_does_not_renumber_the_original(
+    tmp_path, monkeypatch
+):
+    """The exact regression: with a sibling index, `aaa.txt` shifted report.pdf's id."""
+    (tmp_path / "report.pdf").write_bytes(b"x")
+    before = _scan_downloads_in(tmp_path, monkeypatch)["report.pdf"]
+
+    (tmp_path / "aaa.txt").write_bytes(b"y")
+    after = _scan_downloads_in(tmp_path, monkeypatch)
+    assert after["report.pdf"] == before
+    assert after["aaa.txt"] != before
+
+
+def test_same_basename_in_different_directories_does_not_collide(tmp_path):
+    a = tmp_path / "one" / "notes.txt"
+    b = tmp_path / "two" / "notes.txt"
+    assert stable_path_id("dl", a) != stable_path_id("dl", b)
+    assert stable_path_id("dl", a) == stable_path_id("dl", tmp_path / "one" / "notes.txt")
+
+
+def test_ids_survive_names_that_are_not_valid_utf8_or_id_safe():
+    """`str.encode()` raises on a surrogate-escaped name; os.fsencode round-trips it."""
+    weird = Path("/tmp") / "re port \udcff&%.txt"
+    item_id = stable_path_id("dl", weird)
+    assert re.fullmatch(r"dl-[A-Za-z0-9._-]+-[0-9a-f]{12}", item_id), item_id
+
+
+def test_ids_are_stable_across_processes(tmp_path):
+    """Not the salted builtin hash: a second interpreter must agree on the digest."""
+    probe = (
+        "from pathlib import Path; from app.utils.fs import stable_path_id; "
+        "print(stable_path_id('dl', Path('/tmp/report.pdf')))"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=Path(scanners.__file__).parent.parent.parent,
+    )
+    assert out.stdout.strip() == stable_path_id("dl", Path("/tmp/report.pdf"))
+
+
+def test_large_file_ids_stay_stable_and_readable(tmp_path, monkeypatch):
+    big = tmp_path / "movie.mkv"
+    big.write_bytes(b"0" * 2048)
+    monkeypatch.setattr(
+        files, "_user_special_dirs", lambda: {"home": tmp_path, "downloads": tmp_path}
+    )
+    monkeypatch.setattr(files.L, "LARGE_FILE_THRESHOLD_BYTES", 1024)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+    ids = [i.id for i in files.scan_large_unused_candidates()]
+    again = [i.id for i in files.scan_large_unused_candidates()]
+    assert ids == again
+    assert any(i.startswith("large-movie.mkv-") for i in ids), ids
 
 
 # --- end to end -------------------------------------------------------------
