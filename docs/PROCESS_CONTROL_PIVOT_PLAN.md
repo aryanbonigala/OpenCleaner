@@ -210,9 +210,17 @@ ML ranker, quarantine retention.
 9. Service dependency data (`DependOnService` / dependents) for dependency warnings — read-only.
 10. FPS optimization recommendation builder (which non-essential items are worth suspending before gaming,
     with expected memory freed — no fabricated FPS numbers).
-11. Chat command parser (intent extraction, deterministic, local, no cloud).
-12. Chat safety response layer (refusals, "will not touch" lists, confirmation tokens).
+11. ~~Chat command parser (intent extraction, deterministic, local, no cloud)~~ — **shipped**:
+    `backend/app/services/chat_preview.py` (`detect_intent`), intents `gaming_safety_preview`,
+    `safe_suspend_preview`, `explain_process`, `unknown_inventory`, `protected_inventory`, `help`.
+12. ~~Chat safety response layer (refusals, "will not touch" lists)~~ — **shipped**: every answer
+    carries the preview-only disclaimer, blocked items keep their `blocked_reason`, and stop-verbs
+    ("kill", "end", "terminate", "shut down") add an explicit execution-not-implemented refusal.
+    Action verdicts are delegated to `preview_end_processes`, so chat can never be more permissive
+    than `POST /api/processes/preview-end`. Confirmation tokens are **deliberately not shipped** —
+    see 13.
 13. Confirmation-token store for chat execution (short-lived, single-use, bound to a preview).
+    Still missing on purpose: no execute endpoint exists, and a token would imply one.
 14. Audit entries for process actions (`process_end`, `process_suspend`, `process_resume`, `chat_execute`).
 
 ### Frontend
@@ -578,7 +586,34 @@ Response: `{ "action": "suspend", "succeeded": [9134], "failed": [], "skipped": 
 Request: `{ "preset": "max_fps", "include_browsers": false }`
 Response: `{ "plan_id": "fp_…", "recommended": [ … ], "will_not_touch": [{"name":"EasyAntiCheat.exe","reason":"anti-cheat — blocked"}], "estimated_memory_freed_mb": 1840.0, "notes": ["Suspend is reversible via Stop."] }`
 
-### `POST /api/chat/command-preview`
+### `POST /api/chat/command-preview` — **implemented (preview-only)**
+
+Shipped shape differs from the sketch below: there is no `confirmation_token`, no `executed`
+flag, and no `requires_confirmation`, because `/api/chat/execute-confirmed` does not exist.
+Emitting a token would advertise an execute path that is not implemented.
+
+Request: `{ "message": "what can I close before gaming?", "confirm_explicit_selection": false }`
+
+Response:
+
+```json
+{
+  "intent": "gaming_safety_preview",
+  "message": "what can I close before gaming?",
+  "summary": "1 of 2 FPS-impacting and non-essential items would be offered as a reversible suspend. 1 are held back as essential, protected, unknown, or report-only. Nothing ran.",
+  "items": [{"id": "discord", "display_name": "Discord", "pid": 9140, "status": "would_allow", "reason": "Would be offered as a reversible suspend once execution exists. Nothing ran."}],
+  "blocked": [{"id": "lsass", "status": "blocked", "blocked_reason": "Hard-protected security stack."}],
+  "preview": {"preview_id": null, "counts": {"would_allow": 1, "blocked": 1}, "items": [], "disclaimer": "…"},
+  "detail": null,
+  "actions": [{"kind": "review_preview", "label": "Review this preview in full", "endpoint": "POST /api/processes/preview-end", "item_ids": ["discord"]}],
+  "warnings": [],
+  "disclaimer": "Preview only. No process was ended, suspended, or modified."
+}
+```
+
+`explain_process` fills `detail` with `process_control`, `explanation`, `scanner_facts`,
+`evidence` and `blocked_reason`. No scan yet → `summary` asks the user to run one (HTTP 200,
+not an error). Original sketch, retained for the eventual execution milestone:
 
 Request: `{ "message": "what can I close before gaming?" }`
 

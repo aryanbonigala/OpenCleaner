@@ -4,7 +4,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import ItemType, PermissionMode, PerformancePreset, RiskBucket
+from app.models.enums import (
+    ActionPolicy,
+    ItemType,
+    PermissionMode,
+    PerformancePreset,
+    ProcessControlCategory,
+    RiskBucket,
+)
 from app.models.scan_item import SCAN_SCHEMA_VERSION, ProcessControl, ScanItem
 
 # Re-export enums for backward compatibility
@@ -164,6 +171,67 @@ class ProcessPreviewEndResponse(BaseModel):
     preview_id: str | None = None
     counts: dict[str, int]
     items: list[ProcessPreviewEndItem]
+    disclaimer: str
+
+
+class ChatCommandPreviewRequest(BaseModel):
+    message: str
+    confirm_explicit_selection: bool = False
+
+
+class ChatCommandPreviewItem(BaseModel):
+    """One row in a chat answer. `informational` rows are never actionable."""
+
+    id: str
+    display_name: str
+    pid: int | None = None
+    item_type: ItemType
+    category: ProcessControlCategory
+    action_policy: ActionPolicy
+    status: Literal["would_allow", "blocked", "informational"]
+    reason: str
+    fps_impact: str | None = None
+    user_visible_summary: str | None = None
+    blocked_reason: str | None = None
+
+
+class ChatCommandPreviewAction(BaseModel):
+    """A read-only next step the UI may offer. The backend never performs it."""
+
+    kind: Literal[
+        "run_scan",
+        "review_preview",
+        "confirm_explicit_selection",
+        "open_process_detail",
+        "none",
+    ]
+    label: str
+    endpoint: str | None = None
+    item_ids: list[str] = Field(default_factory=list)
+
+
+class ChatCommandPreviewResponse(BaseModel):
+    """
+    Preview-only chat answer. There is deliberately no confirmation token here —
+    a token would imply an execute endpoint, and none exists.
+    """
+
+    intent: Literal[
+        "gaming_safety_preview",
+        "safe_suspend_preview",
+        "explain_process",
+        "unknown_inventory",
+        "protected_inventory",
+        "help",
+    ]
+    message: str
+    summary: str
+    items: list[ChatCommandPreviewItem] = Field(default_factory=list)
+    blocked: list[ChatCommandPreviewItem] = Field(default_factory=list)
+    preview: ProcessPreviewEndResponse | None = None
+    detail: dict[str, Any] | None = None
+    actions: list[ChatCommandPreviewAction] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     disclaimer: str
 
 

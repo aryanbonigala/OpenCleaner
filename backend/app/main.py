@@ -25,6 +25,8 @@ from app.config import get_settings
 from app.db import append_audit, db_conn, get_setting, init_db, set_setting
 from app.engine.explain import explain_item
 from app.models.schemas import (
+    ChatCommandPreviewRequest,
+    ChatCommandPreviewResponse,
     CleanupExecuteRequest,
     CleanupPreviewRequest,
     CleanupPreviewResponse,
@@ -49,6 +51,7 @@ from app.models.scan_item import ScanItem
 from app.pipeline.adapters import scored_from_scan_item
 from app.engine.protected_registry import protected_pattern_count
 from app.services.feedback_service import record_feedback
+from app.services.chat_preview import build_chat_preview
 from app.services.process_inventory import (
     get_process_inventory,
     get_process_item_by_pid,
@@ -347,6 +350,20 @@ async def process_end() -> dict[str, Any]:
         status_code=501,
         detail="Process execution is not implemented yet. Use preview endpoints only.",
     )
+
+
+@app.post("/api/chat/command-preview", response_model=ChatCommandPreviewResponse)
+async def chat_command_preview(req: ChatCommandPreviewRequest) -> ChatCommandPreviewResponse:
+    """
+    Deterministic local parser over the latest scan. Read-only: no LLM, no OS access,
+    no execution, no confirmation token. A missing scan is an answer, not an error.
+    """
+    payload = build_chat_preview(
+        req.message,
+        await latest_scan_from_db(),
+        confirm_explicit_selection=req.confirm_explicit_selection,
+    )
+    return ChatCommandPreviewResponse.model_validate(payload)
 
 
 @app.get("/api/quarantine")
