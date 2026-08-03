@@ -114,3 +114,20 @@ proving it now, against the existing manual-start workflow, retires that risk wi
 Cargo features, Tauri allowlist/permissions, bundling, or backend binary packaging — all of which
 are separately gated and higher-risk. It also gives the eventual "Rust spawns the sidecar" task a
 tested readiness primitive to call instead of inventing one under bundling pressure.
+
+## 8. Build baseline update (at `fa91e79`, "Add backend readiness gate")
+
+- **Node** `v23.3.0` / **npm** `10.9.1` present. Note: `frontend/package.json` `engines` pins
+  `node: ">=22 <23"` — the installed Node is outside that range, though `npm run build` still
+  succeeded (not enforced by npm without `engine-strict`).
+- **Rust/Cargo: not installed** on this machine (`rustc`, `cargo` → command not found). This is
+  the blocker for verifying the Tauri scaffold compiles.
+- **`frontend/npm run build`**: succeeds (`tsc --noEmit && vite build`, ~343ms) — still passes
+  after the backend readiness-gate change.
+- **`npm run tauri -- --version`**: succeeds — `tauri-cli 1.6.3` is available (the CLI is a
+  JS/npm wrapper and reports its version without invoking `rustc`).
+- **`npm run tauri build`**: not run. Skipped per stop condition — it requires `cargo`/`rustc` to
+  compile the Rust crate, which are absent, so it would fail immediately on missing toolchain
+  rather than surface a build-config blocker.
+- **Net**: Tauri scaffold compile status is still unverified in this repo, not because of a config
+  or code problem, but because no Rust toolchain is installed on the machine that ran this audit.
