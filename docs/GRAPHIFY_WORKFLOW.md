@@ -104,6 +104,16 @@ If the graph itself is stale (files changed but the graph did not), rebuild:
 graphify update .        # incremental, AST-only, no API cost
 ```
 
+Two things to know about `graphify update .`:
+
+- It re-extracts **code only**. Edits to `PROJECT_GRAPH_FACTS.md` and other docs are not
+  picked up by it — they need a semantic pass (`/graphify --update` from inside an AI
+  assistant). The curated fact nodes already in the graph are preserved by `update`, so
+  running it is always safe.
+- It re-clusters, so hand-written community names are replaced by hub-derived ones
+  (e.g. `process_action_policy.py`). Harmless — `explain`, `path` and `query` are
+  unaffected. Run `graphify label` only if you want prettier names back.
+
 ## 9. How to report Graphify updates in final agent reports
 
 Every task that changed the graph should state, in one short block:
