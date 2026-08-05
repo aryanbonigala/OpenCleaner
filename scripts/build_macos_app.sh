@@ -30,10 +30,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if command -v nvm >/dev/null 2>&1; then
-  # shellcheck disable=SC1090
-  source "$NVM_DIR/nvm.sh" 2>/dev/null || true
-  nvm use 22 2>/dev/null || true
+if ! node --version 2>/dev/null | grep -q '^v22\.'; then
+  for nvm_sh in "${NVM_DIR:-$HOME/.nvm}/nvm.sh" "$HOME/.nvm/nvm.sh"; do
+    if [[ -s "$nvm_sh" ]]; then
+      # shellcheck disable=SC1090
+      source "$nvm_sh"
+      nvm use 22 2>/dev/null || true
+      break
+    fi
+  done
 fi
 
 if ! command -v cargo >/dev/null 2>&1 && [[ -f "$HOME/.cargo/env" ]]; then

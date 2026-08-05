@@ -178,6 +178,10 @@ terminates the app process it launched. macOS only — this is the repeatable
 verification path for the checks described above; it does not add
 signing, notarization, DMG, or Windows/Linux packaged spawn.
 
+See [`docs/MACOS_RELEASE_CHECKLIST.md`](MACOS_RELEASE_CHECKLIST.md) for a
+pre-release checklist (prerequisites, what's verified/not) built around this
+script.
+
 **Still unverified**: Windows and Linux packaged spawn (out of scope this
 task); `SIGKILL`, crash, and power-loss cleanup (not coverable by any
 userspace handler, as before).
