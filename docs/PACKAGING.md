@@ -166,6 +166,18 @@ unbundled release binary fell back to spawning
 `backend/dist/opencleaner-backend` directly, `/health` still came up, and
 `SIGTERM` cleanup was still clean.
 
+### Repeatable macOS packaging smoke
+
+`./scripts/build_macos_app.sh` runs the full sequence above end-to-end from a
+clean checkout: builds the backend sidecar, stages it as a Tauri resource,
+builds the frontend and the Tauri `.app`, then launches the packaged `.app`
+directly, polls `/health` for `component: "opencleaner-backend"`, sends it
+`SIGTERM`, and confirms port 8742 is free afterward. It fails clearly (no
+kill) if port 8742 is already occupied before the smoke, and only ever
+terminates the app process it launched. macOS only — this is the repeatable
+verification path for the checks described above; it does not add
+signing, notarization, DMG, or Windows/Linux packaged spawn.
+
 **Still unverified**: Windows and Linux packaged spawn (out of scope this
 task); `SIGKILL`, crash, and power-loss cleanup (not coverable by any
 userspace handler, as before).
