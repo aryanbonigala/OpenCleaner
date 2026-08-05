@@ -12,6 +12,9 @@ node_modules/
 .DS_Store
 target/
 
+# Staged sidecar binary for Tauri resource bundling (scripts/stage_tauri_sidecar.sh)
+frontend/src-tauri/resources/
+
 # graphify local knowledge graph (build output, machine-local)
 graphify-out/
 

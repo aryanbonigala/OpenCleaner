@@ -113,13 +113,62 @@ the same fix.
 directly to the Tauri process, a crash, or power loss — a spawned backend
 (and its forked worker) would be orphaned in all of these.
 
-This is **not** wired into packaged-app resource bundling: the binary path is
-resolved from `CARGO_MANIFEST_DIR` at compile time (a dev-checkout path), not
-from `tauri::api::path::resource_dir()`. A packaged `.app`/installer would
-need the binary placed under Tauri's bundled resources and the path
-resolution updated accordingly — future work. Verified on macOS only;
-Windows and Linux spawn are unverified (Linux may work as unmodified generic
-Rust, but this has not been tested).
+## Packaged-app resource path (macOS)
+
+The binary path resolution now tries the packaged app resource path first,
+falling back to the dev-checkout path (`CARGO_MANIFEST_DIR`-derived) second —
+see `backend_binary_path()` in `frontend/src-tauri/src/main.rs`.
+
+**Resource staging**: `scripts/stage_tauri_sidecar.sh` copies
+`backend/dist/opencleaner-backend` (built by `scripts/bundle_backend.sh`) to
+`frontend/src-tauri/resources/opencleaner-backend`. It fails clearly if the
+backend binary hasn't been built yet. The staged file is git-ignored (never
+committed) — run it fresh before every `tauri build`.
+
+**Tauri config**: `tauri.conf.json`'s `bundle` now has `"active": true`,
+`"targets": ["app"]` (macOS `.app` only — no dmg/installer), and
+`"resources": ["resources/opencleaner-backend"]`, which Tauri 1.x places at
+`$RESOURCE/resources/opencleaner-backend` inside the bundle (structure
+preserved relative to `src-tauri`). Note: `tauri-build`'s build script
+validates that `bundle.resources` paths exist even at `cargo check`/`cargo
+build` time — the resource must be staged before those commands, not just
+before `tauri build`.
+
+**Rust resolution order**: at startup, `handle.path_resolver().resource_dir()`
+gives the resource directory (works for both a bundled `.app` — resolves
+into `Contents/Resources/` — and an unbundled `cargo build`/`tauri build`
+release binary, where Tauri also copies `bundle.resources` into
+`target/release/resources/` for convenience). `backend_binary_path()` joins
+`resources/opencleaner-backend` onto that dir and uses it if the file exists;
+otherwise it falls back to `<repo root>/backend/dist/opencleaner-backend`
+resolved from `CARGO_MANIFEST_DIR`, exactly as before.
+
+**Verified** (macOS arm64, this task): `cargo check`, `cargo test` (5 unit
+tests, including a new resource-first-precedence test using a temp dir),
+`npm run build`, `npm run tauri build` — all pass; a `.app` bundle was
+produced containing the binary at `Contents/Resources/resources/
+opencleaner-backend` (confirmed via `file`, a Mach-O arm64 executable).
+Running `OpenCleaner AI.app/Contents/MacOS/OpenCleaner AI` directly spawned
+the backend from that packaged resource path (confirmed via `ps` — parent
+`OpenCleaner AI` → bootloader → forked worker, all under
+`Contents/Resources/resources/opencleaner-backend`), `GET /health` returned
+`200` with `component: "opencleaner-backend"`, and `SIGTERM` to the app
+process cleanly killed both the bootloader and its forked worker (confirmed
+via `ps`/`lsof`: no process, port 8742 free) — the same `kill_tracked_child`/
+`terminate_child` helpers as before, unchanged. `SIGINT` was not
+separately re-run against the packaged binary this task since it shares the
+identical, signal-agnostic code path already proven for `SIGTERM` here and
+for both signals previously against the dev-checkout binary.
+
+The dev-checkout fallback still works: with the `target/release/resources/`
+copy temporarily moved aside (simulating no resource dir available), the
+unbundled release binary fell back to spawning
+`backend/dist/opencleaner-backend` directly, `/health` still came up, and
+`SIGTERM` cleanup was still clean.
+
+**Still unverified**: Windows and Linux packaged spawn (out of scope this
+task); `SIGKILL`, crash, and power-loss cleanup (not coverable by any
+userspace handler, as before).
 
 **Fixed**: the PyInstaller `--onefile` binary previously failed at runtime with
 `ERROR: Could not import module "app.main"`, because `uvicorn.run("app.main:app", ...)`

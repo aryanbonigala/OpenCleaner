@@ -28,8 +28,10 @@
       "csp": null
     },
     "bundle": {
-      "active": false,
-      "identifier": "dev.opencleaner.ai"
+      "active": true,
+      "identifier": "dev.opencleaner.ai",
+      "targets": ["app"],
+      "resources": ["resources/opencleaner-backend"]
     }
   }
 }

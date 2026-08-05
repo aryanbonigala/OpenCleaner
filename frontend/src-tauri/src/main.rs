@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// macOS/dev-checkout-only backend sidecar spawn prototype. Not verified on
-// Windows or Linux, and not wired into packaged-app resource bundling yet
+// macOS backend sidecar spawn: tries the packaged app resource path first,
+// then falls back to the dev-checkout path. Not verified on Windows or Linux
 // (see docs/PACKAGING.md, docs/TAURI_SIDECAR_READINESS_AUDIT.md).
 
 use std::io::{Read, Write};
@@ -74,13 +74,29 @@ fn wait_for_health(attempts: u32, delay: Duration) -> bool {
     false
 }
 
-/// Pure path join, no filesystem access — kept separate from
-/// `backend_binary_path` so it's testable without a real checkout.
+const BACKEND_BINARY_NAME: &str = "opencleaner-backend";
+
+/// Pure path joins, no filesystem access — kept separate from
+/// `backend_binary_path` so they're testable without a real checkout/bundle.
 fn resolve_backend_binary(repo_root: &Path) -> PathBuf {
-    repo_root.join("backend").join("dist").join("opencleaner-backend")
+    repo_root.join("backend").join("dist").join(BACKEND_BINARY_NAME)
 }
 
-fn backend_binary_path() -> Option<PathBuf> {
+/// Mirrors tauri.conf.json's `bundle.resources: ["resources/opencleaner-backend"]`,
+/// which places staged resources under `$RESOURCE/resources/...` (structure preserved).
+fn resolve_resource_backend(resource_dir: &Path) -> PathBuf {
+    resource_dir.join("resources").join(BACKEND_BINARY_NAME)
+}
+
+/// Packaged app resource path first (staged via scripts/stage_tauri_sidecar.sh
+/// and bundled by Tauri), dev-checkout fallback second.
+fn backend_binary_path(resource_dir: Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(dir) = resource_dir {
+        let candidate = resolve_resource_backend(&dir);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")); // frontend/src-tauri
     let repo_root = manifest_dir.parent()?.parent()?; // frontend -> repo root
     let candidate = resolve_backend_binary(repo_root);
@@ -150,14 +166,15 @@ fn main() {
         .manage(SidecarChild(Mutex::new(None)))
         .setup(|app| {
             let handle = app.handle();
+            let resource_dir = handle.path_resolver().resource_dir();
             std::thread::spawn(move || match decide(check_health(HEALTH_CHECK_TIMEOUT)) {
                 SpawnDecision::AlreadyRunning => {
                     eprintln!("[sidecar] backend already responding on {HEALTH_ADDR}, not spawning");
                 }
                 SpawnDecision::ShouldSpawn => {
-                    let Some(binary) = backend_binary_path() else {
+                    let Some(binary) = backend_binary_path(resource_dir) else {
                         eprintln!(
-                            "[sidecar] {HEALTH_ADDR}{HEALTH_PATH} unreachable and no backend binary found at backend/dist/opencleaner-backend; relying on frontend readiness gate"
+                            "[sidecar] {HEALTH_ADDR}{HEALTH_PATH} unreachable and no backend binary found in app resources or at backend/dist/opencleaner-backend; relying on frontend readiness gate"
                         );
                         return;
                     };
@@ -215,6 +232,29 @@ mod tests {
     fn resolve_backend_binary_joins_repo_root() {
         let resolved = resolve_backend_binary(Path::new("/repo"));
         assert_eq!(resolved, PathBuf::from("/repo/backend/dist/opencleaner-backend"));
+    }
+
+    #[test]
+    fn resolve_resource_backend_joins_resource_dir() {
+        let resolved = resolve_resource_backend(Path::new("/App.app/Contents/Resources"));
+        assert_eq!(
+            resolved,
+            PathBuf::from("/App.app/Contents/Resources/resources/opencleaner-backend")
+        );
+    }
+
+    #[test]
+    fn backend_binary_path_prefers_resource_when_present() {
+        let dir = std::env::temp_dir().join(format!("oc_sidecar_test_{}", std::process::id()));
+        let resources_dir = dir.join("resources");
+        std::fs::create_dir_all(&resources_dir).unwrap();
+        let staged = resources_dir.join(BACKEND_BINARY_NAME);
+        std::fs::write(&staged, b"stub").unwrap();
+
+        let resolved = backend_binary_path(Some(dir.clone()));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(resolved, Some(staged));
     }
 
     #[test]

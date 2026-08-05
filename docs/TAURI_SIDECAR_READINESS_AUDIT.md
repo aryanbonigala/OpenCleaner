@@ -219,3 +219,28 @@ tested readiness primitive to call instead of inventing one under bundling press
   surviving `SIGKILL` to its bootloader) discovered while verifying it.
   `SIGKILL`/crash/power-loss still cannot be handled by any userspace code
   and remain unfixable in principle, not just unimplemented.
+
+## 12. Packaged macOS resource path implemented (at this commit)
+
+- Closes the gap flagged in §4/§11 ("not wired into packaged-app resource
+  bundling"). `backend_binary_path()` now tries the Tauri resource dir
+  (`handle.path_resolver().resource_dir()`) first, dev-checkout
+  (`CARGO_MANIFEST_DIR`) fallback second. New script
+  `scripts/stage_tauri_sidecar.sh` stages `backend/dist/opencleaner-backend`
+  into `frontend/src-tauri/resources/` (git-ignored, never committed);
+  `tauri.conf.json` now has `bundle.active: true`,
+  `bundle.targets: ["app"]` (macOS `.app` only, no dmg/installer/signing),
+  and `bundle.resources: ["resources/opencleaner-backend"]`.
+- **Verified**: `cargo check`, `cargo test` (5 tests, incl. new
+  resource-precedence test), `npm run build`, `npm run tauri build` all
+  pass; `.app` bundle produced with the binary at
+  `Contents/Resources/resources/opencleaner-backend`. Running the packaged
+  `.app` directly (not `target/release` unbundled) spawned the backend from
+  that resource path, `/health` returned 200, and `SIGTERM` cleanly killed
+  both the PyInstaller bootloader and its forked worker (no orphan, port
+  freed) via the same `kill_tracked_child`/`terminate_child` helpers as
+  before. Dev-checkout fallback re-verified by hiding the resource copy and
+  confirming spawn from `backend/dist/opencleaner-backend` still works.
+- Full detail: `docs/PACKAGING.md` "Packaged-app resource path (macOS)".
+- **Not in scope / still unverified**: Windows and Linux packaged spawn,
+  code signing/notarization, `SIGKILL`/crash/power-loss cleanup.
