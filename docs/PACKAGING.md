@@ -180,7 +180,7 @@ signing, notarization, DMG, or Windows/Linux packaged spawn.
 
 See [`docs/MACOS_RELEASE_CHECKLIST.md`](MACOS_RELEASE_CHECKLIST.md) for a
 pre-release checklist (prerequisites, what's verified/not) built around this
-script.
+script, including how to run it as a manual GitHub Actions workflow.
 
 **Still unverified**: Windows and Linux packaged spawn (out of scope this
 task); `SIGKILL`, crash, and power-loss cleanup (not coverable by any

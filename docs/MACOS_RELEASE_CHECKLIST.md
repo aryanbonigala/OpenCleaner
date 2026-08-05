@@ -39,3 +39,17 @@ together.
 `backend/dist/`, `backend/build/`, `frontend/src-tauri/resources/`, and
 `frontend/src-tauri/target/` are all git-ignored build output — do not commit
 them.
+
+## Manual CI smoke
+
+The `macOS Package Smoke` workflow
+(`.github/workflows/macos-package-smoke.yml`) runs this same script on a
+GitHub-hosted macOS runner. It is manual-only (`workflow_dispatch`) — it does
+not run on push or PR, and there is no schedule.
+
+To run it: GitHub → **Actions** → **macOS Package Smoke** → **Run workflow**.
+
+It verifies the same things as the local command above. On failure, the
+build/smoke logs are uploaded as a workflow artifact. It is not a
+signing/notarization/DMG check, and it does not touch Windows or Linux
+packaging.

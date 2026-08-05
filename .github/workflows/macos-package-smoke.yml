@@ -1,0 +1,40 @@
+name: macOS Package Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build and smoke-test packaged macOS app
+        run: ./scripts/build_macos_app.sh
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-package-smoke-logs
+          path: |
+            /tmp/build_macos_app.bundle_backend.log
+            /tmp/build_macos_app.frontend_build.log
+            /tmp/build_macos_app.tauri_build.log
+            /tmp/build_macos_app.smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
