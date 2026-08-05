@@ -13,6 +13,11 @@ use std::time::Duration;
 
 use tauri::{Manager, RunEvent};
 
+#[cfg(unix)]
+use signal_hook::consts::{SIGINT, SIGTERM};
+#[cfg(unix)]
+use signal_hook::iterator::Signals;
+
 const HEALTH_ADDR: &str = "127.0.0.1:8742";
 const HEALTH_PATH: &str = "/health";
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_millis(500);
@@ -89,6 +94,41 @@ fn sidecar_log_path() -> Option<PathBuf> {
     Some(dir.join("sidecar.log"))
 }
 
+/// The PyInstaller `--onefile` backend binary forks a worker process and the
+/// bootloader we spawn just supervises it; `Child::kill()` (SIGKILL) can't be
+/// caught, so it kills only the bootloader and orphans the worker still
+/// bound to the port. A real SIGTERM lets the bootloader forward the signal
+/// to its worker; if it hasn't exited within the bound, fall back to kill().
+#[cfg(unix)]
+fn terminate_child(child: &mut Child) {
+    let _ = Command::new("kill").arg("-TERM").arg(child.id().to_string()).status();
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(_)) | Err(_) => return,
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+    let _ = child.kill();
+}
+
+#[cfg(not(unix))]
+fn terminate_child(child: &mut Child) {
+    let _ = child.kill();
+}
+
+/// Kills only the child stored in `state`, if any. Returns whether a stored
+/// child was actually present and killed — a pre-existing backend Tauri
+/// never spawned is never touched, since it was never stored here.
+fn kill_tracked_child(state: &SidecarChild) -> bool {
+    let Some(mut child) = state.0.lock().unwrap().take() else {
+        return false;
+    };
+    terminate_child(&mut child);
+    let _ = child.wait();
+    true
+}
+
 fn spawn_backend(binary: &Path) -> Option<Child> {
     let mut command = Command::new(binary);
     match sidecar_log_path()
@@ -133,16 +173,36 @@ fn main() {
                     }
                 }
             });
+
+            // SIGTERM/SIGINT (e.g. a killed/force-quit parent process) bypass
+            // Tauri's windowing event loop entirely, so `RunEvent::ExitRequested`
+            // never fires for them — without this, a backend child spawned above
+            // is orphaned. Unix-only: matches the macOS/dev-checkout scope of the
+            // rest of this spawn prototype. Does not cover SIGKILL, crashes, or
+            // power loss, which cannot be caught by any userspace handler.
+            #[cfg(unix)]
+            {
+                let signal_handle = app.handle();
+                if let Ok(mut signals) = Signals::new([SIGTERM, SIGINT]) {
+                    std::thread::spawn(move || {
+                        if let Some(sig) = signals.forever().next() {
+                            let killed = kill_tracked_child(signal_handle.state::<SidecarChild>().inner());
+                            eprintln!("[sidecar] received signal {sig}, killed_child={killed}, exiting");
+                            std::process::exit(128 + sig);
+                        }
+                    });
+                } else {
+                    eprintln!("[sidecar] failed to register SIGTERM/SIGINT handler; termination signals will orphan a spawned backend");
+                }
+            }
+
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let RunEvent::ExitRequested { .. } = event {
-                if let Some(mut child) = app_handle.state::<SidecarChild>().0.lock().unwrap().take() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
+                kill_tracked_child(app_handle.state::<SidecarChild>().inner());
             }
         });
 }
@@ -161,5 +221,11 @@ mod tests {
     fn decide_spawns_only_when_health_check_fails() {
         assert!(matches!(decide(false), SpawnDecision::ShouldSpawn));
         assert!(matches!(decide(true), SpawnDecision::AlreadyRunning));
+    }
+
+    #[test]
+    fn kill_tracked_child_returns_false_when_none_stored() {
+        let state = SidecarChild(Mutex::new(None));
+        assert!(!kill_tracked_child(&state));
     }
 }

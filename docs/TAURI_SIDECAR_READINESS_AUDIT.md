@@ -213,15 +213,9 @@ tested readiness primitive to call instead of inventing one under bundling press
   `component: "opencleaner-backend"` from `GET /health`, and a full Tauri
   release-binary spawn smoke — the frozen binary came up under the Rust
   spawn logic and `/health` was reachable end-to-end.
-- **New gap found during this task's Tauri spawn smoke — unverified/likely
-  broken**: sending the Tauri release binary a plain `SIGTERM` (simulating a
-  killed/force-quit process, as opposed to a GUI-driven window close) did
-  **not** terminate the spawned backend child; it was left running and had
-  to be cleaned up manually. Tauri's `RunEvent::ExitRequested` appears to be
-  driven by the windowing event loop (window close / OS "Quit"), not by
-  process-level signals, so a hard kill of the parent orphans the child.
-  This was flagged as unverified in the entry above (§11) before this task;
-  it is now reproduced and confirmed as a real gap, not just an untested
-  path. Out of scope to fix here — would need a `SIGTERM`/`SIGINT` handler
-  in `main.rs` that also kills the tracked child, which is Rust spawn-logic
-  work, not backend packaging.
+- **Fixed (this task)**: the SIGTERM/SIGINT orphan-child gap flagged above is
+  closed. See `docs/PACKAGING.md` "SIGTERM/SIGINT cleanup" for the full
+  fix, including a second, deeper gap (PyInstaller's forked worker process
+  surviving `SIGKILL` to its bootloader) discovered while verifying it.
+  `SIGKILL`/crash/power-loss still cannot be handled by any userspace code
+  and remain unfixable in principle, not just unimplemented.

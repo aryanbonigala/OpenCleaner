@@ -73,6 +73,46 @@ frontend readiness gate still reports "backend not reachable" on failure. On
 `ExitRequested`, only the child process this app instance spawned is killed —
 a pre-existing backend it didn't start is left alone.
 
+### SIGTERM/SIGINT cleanup
+
+`RunEvent::ExitRequested` is driven by Tauri's windowing event loop (window
+close / OS "Quit"), not by process-level signals — a plain `SIGTERM` to the
+Tauri parent (e.g. a killed/force-quit process) previously left a spawned
+backend orphaned. `main.rs` now shares one `kill_tracked_child` helper
+between `ExitRequested` and a new signal path: on Unix, a background thread
+(via the `signal-hook` crate, the one new Cargo dependency this task added,
+scoped to `[target.'cfg(unix)'.dependencies]` so it isn't pulled in on
+Windows) blocks for `SIGTERM`/`SIGINT`, kills only the tracked child, and
+exits with `128 + signal number`. As before, a pre-existing backend Tauri
+didn't spawn is never touched, since it was never stored in `SidecarChild`.
+
+Smoke-testing this fix surfaced a second, deeper gap: the PyInstaller
+`--onefile` `opencleaner-backend` binary is a bootloader that forks its own
+worker process and only supervises it — `Command::spawn()` from Rust
+captures just the bootloader's PID. `Child::kill()` sends `SIGKILL`, which
+can't be caught, so it killed the bootloader instantly without giving it a
+chance to forward anything to its forked worker, which then survived,
+reparented to PID 1, still bound to port 8742 (confirmed by process-tree
+inspection: `SIGTERM` to the bootloader — which it can catch — took both
+processes down together every time; `SIGKILL` orphaned the worker every
+time). Fixed with a `terminate_child` step ahead of `kill_tracked_child`'s
+final `kill()`: send `SIGTERM` to the tracked child via the system `kill`
+binary (`Command::new("kill")` — no new dependency, no unsafe FFI), poll
+`try_wait()` for up to 2 seconds, and fall back to `child.kill()`
+(`SIGKILL`) only if the bootloader hasn't exited by then.
+
+**Verified** (rebuilt release binary, backend rebuilt via
+`scripts/bundle_backend.sh`): pre-existing backend survives Tauri
+`SIGTERM` with no double-spawn; a Tauri-spawned backend (bootloader +
+forked worker) is fully gone — confirmed via `ps`/`lsof`, no process and no
+port 8742 listener — after both `SIGTERM` and `SIGINT` to the Tauri
+process; GUI `ExitRequested` cleanup uses the identical helper, so it gets
+the same fix.
+
+**Not covered, and not coverable by any userspace handler**: `SIGKILL` sent
+directly to the Tauri process, a crash, or power loss — a spawned backend
+(and its forked worker) would be orphaned in all of these.
+
 This is **not** wired into packaged-app resource bundling: the binary path is
 resolved from `CARGO_MANIFEST_DIR` at compile time (a dev-checkout path), not
 from `tauri::api::path::resource_dir()`. A packaged `.app`/installer would
